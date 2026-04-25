@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>TimeKeeper · Watch UI (LVGL)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Nunito+Sans:wght@600;700;800&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet"/>
+<style>
+  html, body { margin: 0; background: #1a201d; font-family: 'Nunito Sans', system-ui, sans-serif; }
+  @keyframes breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.04); } }
+  @keyframes spin    { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="lvgl-tokens.jsx"></script>
+<script type="text/babel" src="lvgl-screens.jsx"></script>
+
+<script type="text/babel">
+const { useState } = React;
+
+function HeaderCard() {
+  return (
+    <div style={{
+      width: 1100, padding: '32px 40px',
+      background: '#1F2624', color: '#F4EFE6',
+      borderRadius: 18, fontFamily: "'Nunito Sans', system-ui, sans-serif",
+    }}>
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, textTransform: 'uppercase', color: '#7FA38E', marginBottom: 8 }}>
+        TimeKeeper · Watch UI · LVGL spec
+      </div>
+      <div style={{ fontFamily: "'Nunito', system-ui, sans-serif", fontWeight: 800, fontSize: 36, letterSpacing: -0.5, lineHeight: 1.1 }}>
+        Waveshare ESP32-S3-Touch-AMOLED-2.06
+      </div>
+      <div style={{ display: 'flex', gap: 36, marginTop: 18, fontSize: 13, color: '#B8C2BD', flexWrap: 'wrap' }}>
+        <div><b style={{color:'#F4EFE6'}}>Display</b> · 410 × 502 AMOLED, capacitive touch, rounded</div>
+        <div><b style={{color:'#F4EFE6'}}>Input</b> · touch + 2 side buttons (BTN1 wake/back, BTN2 confirm)</div>
+        <div><b style={{color:'#F4EFE6'}}>Framework</b> · LVGL 9 + ESP-IDF</div>
+        <div><b style={{color:'#F4EFE6'}}>Aesthetic</b> · V2 Calm (sage / off-white / soft charcoal)</div>
+      </div>
+      <div style={{ fontSize: 12, color: '#8A958F', marginTop: 16, fontFamily: "'JetBrains Mono', monospace" }}>
+        Each screen renders at native pixel size. Dashed callouts map regions to LVGL widgets.
+      </div>
+    </div>
+  );
+}
+
+function ScreenCard({ Comp, label, btn1, btn2 }) {
+  return (
+    <div style={{ padding: '40px 56px 56px 24px', background: '#262E2B', borderRadius: 18 }}>
+      <WatchBezel label={label} btn1Label={btn1} btn2Label={btn2}>
+        <Comp/>
+      </WatchBezel>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <DesignCanvas title="Watch UI · LVGL spec" subtitle="Waveshare ESP32-S3-Touch-AMOLED-2.06 · 410×502" background="#1a201d">
+      <DCSection id="overview" title="Overview">
+        <DCArtboard id="header" label="About this spec" width={1180} height={260}>
+          <div style={{ padding: 40, background: '#1a201d', minHeight: 260 }}>
+            <HeaderCard/>
+          </div>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="idle" title="Idle states">
+        <DCArtboard id="home"  label="01 · Home / Clock face"      width={760} height={620}>
+          <ScreenCard Comp={ScrHome}  label="01 · Home"            btn1="WAKE" btn2="MENU"/>
+        </DCArtboard>
+        <DCArtboard id="list"  label="02 · Today's task list"      width={760} height={620}>
+          <ScreenCard Comp={ScrList}  label="02 · Today list"      btn1="BACK" btn2="SCROLL"/>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="task" title="Task flow">
+        <DCArtboard id="reminder" label="03 · Reminder (buzz)"     width={760} height={620}>
+          <ScreenCard Comp={ScrReminder} label="03 · Reminder"     btn1="SNOOZE" btn2="START"/>
+        </DCArtboard>
+        <DCArtboard id="active"   label="04 · Active (timer)"      width={760} height={620}>
+          <ScreenCard Comp={ScrActive}   label="04 · Active"       btn1="PAUSE" btn2="DONE"/>
+        </DCArtboard>
+        <DCArtboard id="confirm"  label="05 · Confirm (hold)"      width={760} height={620}>
+          <ScreenCard Comp={ScrConfirm}  label="05 · Confirm"      btn1="CANCEL" btn2="HOLD"/>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="outcome" title="Outcomes">
+        <DCArtboard id="reward"  label="06 · Reward (★ +1)"        width={760} height={620}>
+          <ScreenCard Comp={ScrReward} label="06 · Reward"         btn1="OK" btn2="OK"/>
+        </DCArtboard>
+        <DCArtboard id="missed"  label="07 · Missed / retry"       width={760} height={620}>
+          <ScreenCard Comp={ScrMissed} label="07 · Missed"         btn1="SKIP" btn2="RETRY"/>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="setup" title="Setup">
+        <DCArtboard id="pair"    label="08 · BLE pairing"          width={760} height={620}>
+          <ScreenCard Comp={ScrPair} label="08 · Pair"             btn1="CANCEL" btn2="RE-ADV"/>
+        </DCArtboard>
+      </DCSection>
+    </DesignCanvas>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
