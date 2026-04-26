@@ -1,0 +1,10 @@
+packages:
+  - 'apps/caregiver'
+  - 'apps/laptop-monitor'
+  - 'apps/watch-simulator'
+  - 'packages/*'
+
+onlyBuiltDependencies:
+  - active-win
+  - electron
+  - esbuild

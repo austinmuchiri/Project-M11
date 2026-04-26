@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm --version)",
+      "Bash(npm --version)",
+      "Bash(npm install *)",
+      "Bash(npm root *)",
+      "Bash(export PATH=\"/c/Users/muchiri.austin/AppData/Roaming/npm:$PATH\")",
+      "Bash(pnpm install *)",
+      "Bash(pnpm config *)",
+      "Bash(pnpm rebuild *)",
+      "Bash(pnpm approve-builds *)",
+      "Bash(pnpm -r typecheck)",
+      "Bash(pnpm --filter @timekeeper/caregiver build)",
+      "Bash(pnpm --filter @timekeeper/laptop-monitor build)",
+      "Bash(node assets/build-tray-icons.cjs)",
+      "Bash(timeout 4 node serve.cjs)",
+      "Bash(curl -sf http://localhost:5174/ -o /dev/null)",
+      "Bash(wait)",
+      "Bash(npx cap *)",
+      "Bash(gh auth *)",
+      "Bash(powershell.exe -NoProfile -Command \"Get-Command gh -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source\")",
+      "Bash(git config *)",
+      "Bash(winget install *)",
+      "Bash(export PATH=\"/c/Program Files/GitHub CLI:$PATH\")",
+      "Bash(gh --version)"
+    ]
+  }
+}

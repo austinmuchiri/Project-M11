@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Focus lock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@800;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet"/>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: radial-gradient(circle at 50% 30%, #25382E 0%, #1F2E27 60%, #14201A 100%);
+    color: #F4EFE6; font-family: 'Nunito', system-ui, sans-serif;
+    -webkit-user-select: none; user-select: none; cursor: none; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; }
+  .badge { font-size: 12px; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 2px; padding: 6px 14px; border-radius: 999px;
+    background: rgba(168,199,184,0.12); color: #A8C7B8; font-family: 'JetBrains Mono', monospace; }
+  .task { font-weight: 900; font-size: clamp(60px, 8vw, 110px); letter-spacing: -1.5px;
+    line-height: 1; text-align: center; }
+  .timer { font-family: 'JetBrains Mono', monospace; font-size: clamp(64px, 9vw, 130px);
+    font-weight: 700; letter-spacing: -2px; opacity: 0.9; }
+  .ring { position: relative; width: 320px; height: 320px; margin-top: 12px; }
+  .ring svg { transform: rotate(-90deg); }
+  .ring .center { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; }
+  .hint { font-family: 'JetBrains Mono', monospace; font-size: 14px;
+    color: rgba(244,239,230,0.55); letter-spacing: 1px; margin-top: 8px; }
+</style>
+</head>
+<body>
+  <div class="badge">Focus lock · TimeKeeper</div>
+  <div class="task" id="task">Brush Teeth</div>
+
+  <div class="ring">
+    <svg width="320" height="320">
+      <circle cx="160" cy="160" r="148" stroke="rgba(168,199,184,0.18)" stroke-width="14" fill="none"/>
+      <circle id="prog" cx="160" cy="160" r="148" stroke="#A8C7B8" stroke-width="14" fill="none"
+              stroke-linecap="round" stroke-dasharray="929.9" stroke-dashoffset="929.9"/>
+    </svg>
+    <div class="center">
+      <div class="timer" id="timer">3:00</div>
+    </div>
+  </div>
+
+  <div class="hint">Tap watch → DONE to unlock</div>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const taskName = params.get('task') || 'Task';
+  const expectedSec = Math.max(1, parseInt(params.get('expected') || '180', 10));
+
+  document.getElementById('task').textContent = taskName;
+
+  const startedAt = Date.now();
+  const total = expectedSec * 1000;
+  const C = 2 * Math.PI * 148;
+
+  function tick() {
+    const elapsed = Math.min(total, Date.now() - startedAt);
+    const remainingMs = Math.max(0, total - elapsed);
+    const m = Math.floor(remainingMs / 60000);
+    const s = Math.floor((remainingMs % 60000) / 1000);
+    document.getElementById('timer').textContent = `${m}:${String(s).padStart(2,'0')}`;
+    const pct = elapsed / total;
+    document.getElementById('prog').setAttribute('stroke-dashoffset', String(C * (1 - pct)));
+    if (remainingMs > 0) requestAnimationFrame(tick);
+  }
+  tick();
+</script>
+</body>
+</html>

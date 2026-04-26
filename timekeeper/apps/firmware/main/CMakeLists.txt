@@ -1,0 +1,31 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "ui/ui_theme.c"
+        "ui/ui_home.c"
+        "ui/ui_list.c"
+        "ui/ui_reminder.c"
+        "ui/ui_active.c"
+        "ui/ui_confirm.c"
+        "ui/ui_reward.c"
+        "ui/ui_missed.c"
+        "ui/ui_pair.c"
+        "ble/ble_gatt.c"
+        "ble/sync.c"
+        "tasks/scheduler.c"
+        "tasks/haptics.c"
+        "storage/nvs_store.c"
+    INCLUDE_DIRS
+        "."
+        "ui"
+        "ble"
+        "tasks"
+        "storage"
+    REQUIRES
+        lvgl
+        nvs_flash
+        bt
+        esp_timer
+        esp_event
+        driver
+)

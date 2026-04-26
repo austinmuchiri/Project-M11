@@ -1,0 +1,8 @@
+# Pulled by idf-component-manager during `idf.py build`.
+dependencies:
+  idf:
+    version: ">=5.1"
+  lvgl/lvgl:
+    version: "~9.1.0"
+  espressif/esp_lcd_touch_cst816s:
+    version: "*"

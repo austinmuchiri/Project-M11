@@ -1,0 +1,28 @@
+{
+  "name": "timekeeper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-device routine assistant for autistic kids — caregiver phone + kid watch + laptop monitor",
+  "scripts": {
+    "dev:caregiver": "pnpm --filter @timekeeper/caregiver dev",
+    "dev:laptop": "pnpm --filter @timekeeper/laptop-monitor dev",
+    "dev:watch": "pnpm --filter @timekeeper/watch-simulator dev",
+    "dev:presentation": "node presentation/serve.js",
+    "build:caregiver": "pnpm --filter @timekeeper/caregiver build",
+    "build:laptop": "pnpm --filter @timekeeper/laptop-monitor build",
+    "build:android": "pnpm --filter @timekeeper/caregiver build:android",
+    "build:laptop:installers": "pnpm --filter @timekeeper/laptop-monitor dist",
+    "build:all": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "clean": "pnpm -r exec rimraf dist build .vite node_modules"
+  },
+  "devDependencies": {
+    "typescript": "5.6.3",
+    "rimraf": "6.0.1"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@10.33.2"
+}

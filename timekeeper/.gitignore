@@ -1,0 +1,31 @@
+node_modules/
+dist/
+build/
+.vite/
+out/
+release/
+.env
+.env.local
+*.log
+.DS_Store
+.idea/
+.vscode/
+
+# Capacitor
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+
+# Electron-builder
+release/
+*.dmg
+*.exe
+*.AppImage
+*.deb
+
+# ESP-IDF
+build/
+sdkconfig.old
+managed_components/
+dependencies.lock

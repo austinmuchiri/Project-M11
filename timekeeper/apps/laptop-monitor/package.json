@@ -1,0 +1,36 @@
+{
+  "name": "@timekeeper/laptop-monitor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron tray app: full OS-level foreground-app monitor + lockscreen",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "tsc -p . && node copy-assets.cjs && electron .",
+    "build": "tsc -p . && node copy-assets.cjs",
+    "typecheck": "tsc -p . --noEmit",
+    "dist": "pnpm build && electron-builder",
+    "dist:win": "pnpm build && electron-builder --win",
+    "dist:mac": "pnpm build && electron-builder --mac",
+    "dist:linux": "pnpm build && electron-builder --linux"
+  },
+  "dependencies": {
+    "@timekeeper/schema": "workspace:*",
+    "@timekeeper/supabase-client": "workspace:*",
+    "active-win": "8.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "20.16.13",
+    "electron": "33.0.2",
+    "electron-builder": "25.1.8",
+    "typescript": "5.6.3"
+  },
+  "build": {
+    "appId": "com.timekeeper.monitor",
+    "productName": "TimeKeeper Monitor",
+    "directories": { "output": "release" },
+    "files": ["dist/**/*", "assets/**/*", "package.json"],
+    "mac": { "category": "public.app-category.utilities" },
+    "win": { "target": "nsis" },
+    "linux": { "target": ["AppImage", "deb"] }
+  }
+}

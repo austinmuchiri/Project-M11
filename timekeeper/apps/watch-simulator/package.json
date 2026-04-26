@@ -1,0 +1,9 @@
+{
+  "name": "@timekeeper/watch-simulator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Canvas-based browser simulator of the ESP32 watch UI — used for live demo",
+  "scripts": {
+    "dev": "node serve.cjs"
+  }
+}
