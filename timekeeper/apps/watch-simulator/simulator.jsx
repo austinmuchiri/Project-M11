@@ -476,13 +476,13 @@ function App() {
   })();
 
   return (
-    <div style={{ minHeight: '100vh', padding: '40px 24px 80px' }}>
+    <div style={{ minHeight: '100vh', padding: '24px 24px 60px' }}>
       {/* Header */}
-      <div style={{ maxWidth: 1100, margin: '0 auto 28px',
+      <div style={{ maxWidth: 1100, margin: '0 auto 18px',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.6, color: 'rgba(244,239,230,0.6)' }}>
-            TimeKeeper · Watch simulator
+            Routine Tracker · Watch simulator
           </div>
           <div style={{ fontFamily: LV.fontDisp, fontSize: 28, fontWeight: 800, marginTop: 4, letterSpacing: -0.6 }}>
             Waveshare ESP32-S3-Touch-AMOLED-2.06

@@ -131,7 +131,7 @@ export function SettingsScreen({ onRewards }: { onRewards: () => void }) {
         padding: '4px 4px 0', fontSize: 10, color: APP.inkDim,
         textAlign: 'center', fontFamily: APP.fontMono,
       }}>
-        TimeKeeper · v0.1.0 · ESP32-S3
+        Routine Tracker · v0.1.0 · ESP32-S3
       </div>
     </div>
   );

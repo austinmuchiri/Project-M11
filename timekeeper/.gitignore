@@ -10,6 +10,7 @@ release/
 .DS_Store
 .idea/
 .vscode/
+.claude/
 
 # Capacitor
 android/app/build/

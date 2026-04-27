@@ -5,8 +5,8 @@
   "description": "Electron tray app: full OS-level foreground-app monitor + lockscreen",
   "main": "dist/main.js",
   "scripts": {
-    "dev": "tsc -p . && node copy-assets.cjs && electron .",
-    "build": "tsc -p . && node copy-assets.cjs",
+    "dev": "node build.cjs && electron .",
+    "build": "node build.cjs",
     "typecheck": "tsc -p . --noEmit",
     "dist": "pnpm build && electron-builder",
     "dist:win": "pnpm build && electron-builder --win",
@@ -22,6 +22,7 @@
     "@types/node": "20.16.13",
     "electron": "33.0.2",
     "electron-builder": "25.1.8",
+    "esbuild": "0.24.0",
     "typescript": "5.6.3"
   },
   "build": {

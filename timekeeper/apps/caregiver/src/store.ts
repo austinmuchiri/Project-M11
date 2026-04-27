@@ -33,14 +33,26 @@ let state: State = {
 
 const listeners = new Set<() => void>();
 const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
-const getState = () => state;
 const set = (patch: Partial<State>) => {
   state = { ...state, ...patch };
   listeners.forEach(l => l());
 };
 
+// Per-selector memo cache. useSyncExternalStore requires getSnapshot to
+// return a stable reference between calls when nothing relevant changed,
+// otherwise it loops. Selectors like resolveTodayTasks build a fresh
+// array each call — without this cache, every render schedules another.
+const selectorCache = new WeakMap<(s: State) => unknown, { state: State; result: unknown }>();
+function memo<T>(selector: (s: State) => T): T {
+  const hit = selectorCache.get(selector as (s: State) => unknown);
+  if (hit && hit.state === state) return hit.result as T;
+  const result = selector(state);
+  selectorCache.set(selector as (s: State) => unknown, { state, result });
+  return result;
+}
+
 export function useStore<T>(selector: (s: State) => T): T {
-  return useSyncExternalStore(subscribe, () => selector(getState()), () => selector(state));
+  return useSyncExternalStore(subscribe, () => memo(selector), () => memo(selector));
 }
 
 let bootstrapped = false;

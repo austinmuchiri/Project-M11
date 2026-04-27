@@ -1,0 +1,12 @@
+# Top-level repo gitignore — applies across the whole project
+
+# Local Claude Code state — session-specific, not source
+.claude/
+
+# Editor / OS junk
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Per-app gitignore in timekeeper/.gitignore covers node_modules, dist, etc.

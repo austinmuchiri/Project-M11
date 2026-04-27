@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=1280"/>
-<title>TimeKeeper — Hackcessible 2026</title>
+<title>Routine Tracker — Hackcessible 2026</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Nunito+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet"/>
@@ -128,8 +128,9 @@
   .phone iframe { width: 100%; height: 100%; border: none; }
 
   /* Watch mockup */
-  .watch-frame iframe { width: 1180px; height: 720px; border: none; border-radius: 16px;
-    background: var(--bg); }
+  .watch-frame { width: 100%; height: 820px; border-radius: 16px;
+    background: var(--bg); border: 1px solid rgba(244,239,230,0.08); overflow: hidden; }
+  .watch-frame iframe { width: 100%; height: 100%; border: none; display: block; }
 
   /* Laptop mockup */
   .laptop { position: relative; width: 100%; max-width: 800px; margin: 0 auto;
@@ -185,7 +186,7 @@
   <div class="brand">
     <span class="dot"></span>
     <div>
-      <div class="name">TimeKeeper</div>
+      <div class="name">Routine Tracker</div>
       <div class="meta" id="meta-slide">01 / 08</div>
     </div>
   </div>
@@ -224,57 +225,58 @@ function slideHTML(id) {
       <div class="cover">
         <div class="halo"></div>
         <div class="eyebrow">Hackcessible 2026 · Group 1</div>
-        <h1 class="tk">Time<span style="color:var(--brand)">Keeper</span>.</h1>
-        <p class="lead">A calm, multi-device routine assistant for autistic kids.
-          One source of truth in the cloud — three surfaces that meet the kid where they are:
-          a watch on the wrist, a phone for the caregiver, a laptop agent that watches what's actually on screen.</p>
+        <h1 class="tk">Routine<br/><span style="color:var(--brand)">Tracker</span>.</h1>
+        <p class="lead">A gentle, three-screen helper for kids who do better with steady routines.
+          One little watch on the wrist, one phone for the grown-up, and a quiet helper on the laptop —
+          all working together so mornings feel a bit smoother for everyone. 🌱</p>
         <div class="meta-row" style="margin-top: 36px;">
-          <div><b>Watch.</b> ESP32-S3 + LVGL 9 — soft taps, hold-to-done.</div>
-          <div><b>Phone.</b> React + Capacitor — Android APK.</div>
-          <div><b>Laptop.</b> Electron tray — full OS-level focus monitoring.</div>
+          <div>⌚ <b>Watch.</b> A soft buzz, a single tap — no words needed.</div>
+          <div>📱 <b>Phone.</b> See how the day is going, send a kind nudge.</div>
+          <div>💻 <b>Laptop.</b> Notices when focus drifts — never punishes.</div>
         </div>
       </div>
     `;
 
     case 'problem': return `
       <div class="eyebrow">The problem</div>
-      <h2 class="tk">Routines fall apart in the gap between "told" and "doing".</h2>
-      <p class="lead">Caregivers can prompt verbally, but the kid still drifts: into a game, a YouTube tab,
-        an open Roblox window. By the time anyone notices, the morning is wrecked.</p>
+      <h2 class="tk">Mornings get lost between "I told them" and "they did it".</h2>
+      <p class="lead">Kids on the spectrum often need clear cues, predictable rhythm, and time to switch.
+        Verbal reminders alone don't bridge that gap — and once a screen is in the picture, attention drifts in a flash.</p>
 
       <div class="grid-3" style="margin-top: 32px;">
         <div class="card">
-          <div class="label">Today</div>
-          <h3 class="tk">Verbal prompts only</h3>
+          <div class="label">😓 What usually happens</div>
+          <h3 class="tk">Repeating yourself</h3>
           <p style="color: var(--ink-dim); font-size: 14px; line-height: 1.5;">
-            Caregiver repeats themselves 6× per morning. Kid is sensitive to escalation — voice raised → meltdown.
+            "Brush your teeth!" — six times a morning. Voices rise. The day starts on edge,
+            and the kid feels it most.
           </p>
         </div>
         <div class="card">
-          <div class="label">Or: punitive</div>
-          <h3 class="tk">Lock the laptop</h3>
+          <div class="label">🚫 Or: lock everything</div>
+          <h3 class="tk">Heavy-handed apps</h3>
           <p style="color: var(--ink-dim); font-size: 14px; line-height: 1.5;">
-            Apps like Qustodio block apps wholesale.
-            Doesn't follow a routine — just silences the device.
+            Tools like Qustodio just block screens. They don't follow routines — they only
+            shut things off, which can feel like a punishment.
           </p>
         </div>
         <div class="card">
-          <div class="label">Our take</div>
-          <h3 class="tk">Quiet, transparent, kid-led</h3>
+          <div class="label">🌿 Our take</div>
+          <h3 class="tk">Calm, kid-led, transparent</h3>
           <p style="color: var(--ink-dim); font-size: 14px; line-height: 1.5;">
-            Watch buzzes once. Caregiver sees live status. Laptop only locks
-            if a task is genuinely active. No yelling, no surprise blackouts.
+            Watch gives a soft buzz. Grown-up sees what's happening. Laptop only steps in
+            during an active task. No yelling, no surprises.
           </p>
         </div>
       </div>
     `;
 
     case 'system': return `
-      <div class="eyebrow">System</div>
-      <h2 class="tk">Three surfaces · one source of truth.</h2>
-      <p class="lead">All three apps speak the same Zod schema and share Supabase as the
-        backbone. Watch buffers BLE events offline, phone replays them, laptop pushes
-        heartbeats every 2 seconds.</p>
+      <div class="eyebrow">How it fits together</div>
+      <h2 class="tk">Three little helpers · one shared notebook.</h2>
+      <p class="lead">The watch and the laptop both whisper to a tiny database in the cloud,
+        and the phone shows the grown-up what's going on. If the watch is offline, it remembers —
+        and catches up the moment it reconnects. Nothing gets lost.</p>
 
       <div class="diagram">
         <div class="node">
@@ -306,10 +308,10 @@ function slideHTML(id) {
     `;
 
     case 'phone': return `
-      <div class="eyebrow">Surface 1 · Caregiver phone</div>
-      <h2 class="tk">Today, at a glance.</h2>
-      <p class="lead">React 18 + Vite + Capacitor 6 (Android target). Live-status hero, preset routines,
-        12-week compliance trend, gentle 3-miss escalation, rewards. Live demo below 👇</p>
+      <div class="eyebrow">📱 The caregiver phone</div>
+      <h2 class="tk">A peaceful look at the day.</h2>
+      <p class="lead">No tabs of charts, no walls of text. Just: where is the kid right now, what's next,
+        and how is the day going overall. Tap once to send a kind nudge to the watch.</p>
 
       <div style="display: grid; grid-template-columns: 360px 1fr; gap: 48px; margin-top: 32px; align-items: start;">
         <div class="phone">
@@ -318,45 +320,56 @@ function slideHTML(id) {
           </div>
         </div>
         <div>
-          <h3 class="tk">Screens</h3>
+          <h3 class="tk">Seven gentle screens</h3>
           <ul style="font-size: 14px; line-height: 1.9; color: var(--ink-dim); padding-left: 20px;">
-            <li><b style="color:var(--ink)">Today</b> — live watch + laptop status, dot ladder of routine progress</li>
-            <li><b style="color:var(--ink)">Schedule</b> — preset routines, timeline editor, sync-to-watch</li>
-            <li><b style="color:var(--ink)">Insights</b> — week bars, time-of-day breakdown, 12-week trend, PDF export</li>
-            <li><b style="color:var(--ink)">Alerts</b> — gentle 3-miss escalation, grouped Today/Earlier</li>
-            <li><b style="color:var(--ink)">Settings</b> — devices, miss threshold, quiet hours, haptic-only</li>
-            <li><b style="color:var(--ink)">Nudge</b> modal — quick text → push to watch via realtime</li>
-            <li><b style="color:var(--ink)">Rewards</b> — assign stars, define treats</li>
+            <li><b style="color:var(--ink)">Today</b> — see the watch + laptop in one calm glance</li>
+            <li><b style="color:var(--ink)">Schedule</b> — morning, school, evening — gently editable</li>
+            <li><b style="color:var(--ink)">Insights</b> — how this week compares, no judgement</li>
+            <li><b style="color:var(--ink)">Alerts</b> — only pings after 3 misses in a row</li>
+            <li><b style="color:var(--ink)">Settings</b> — quiet hours, haptic-only, miss threshold</li>
+            <li><b style="color:var(--ink)">Nudge</b> — "Almost there!" → lands on the watch</li>
+            <li><b style="color:var(--ink)">Rewards</b> — stars and little treats kids choose with you</li>
           </ul>
-          <div style="margin-top: 24px;">
-            <span class="pill brand">@capacitor/push-notifications</span>
-            <span class="pill brand">@capacitor-community/bluetooth-le</span>
-            <span class="pill brand">@capacitor/preferences</span>
-          </div>
-          <div style="margin-top: 14px; font-size: 12px; color: var(--ink-faint); font-family: var(--font-mono);">
-            Run locally: <code>pnpm dev:caregiver</code> → http://localhost:5173
+          <div style="margin-top: 24px; padding: 14px 16px; background: rgba(168,199,184,0.10);
+                       border: 1px solid rgba(168,199,184,0.20); border-radius: 12px;">
+            <div style="color: var(--brand); font-size: 11px; font-weight: 800; letter-spacing: 1.4px;
+                        text-transform: uppercase; margin-bottom: 6px;">
+              💡 Try it
+            </div>
+            <div style="font-size: 13px; line-height: 1.6;">
+              Open <a href="http://localhost:5173" target="_blank"
+                       style="color: var(--brand); text-decoration: none;">localhost:5173</a>
+              in a new tab and switch to phone view (DevTools → toggle device toolbar).
+            </div>
           </div>
         </div>
       </div>
     `;
 
     case 'watch': return `
-      <div class="eyebrow">Surface 2 · Kid watch</div>
-      <h2 class="tk">Eight screens. One thumb. No words required.</h2>
-      <p class="lead">Waveshare ESP32-S3-Touch-AMOLED-2.06 — 410 × 502 panel, 2 side buttons,
-        Li-Po + USB-C. LVGL 9 on ESP-IDF. Click side buttons or use auto-play below.</p>
+      <div class="eyebrow">⌚ The kid's watch</div>
+      <h2 class="tk">Eight calm screens. One thumb. No reading required.</h2>
+      <p class="lead">Pictures, not words. Soft buzzes, not alarms. Hold a button to confirm —
+        instead of tap-tap-tap, which feels less stressful when little hands are anxious.</p>
 
       <div class="watch-frame" style="margin-top: 28px;">
         <iframe src="/watch" title="Watch simulator"></iframe>
       </div>
+
+      <div style="margin-top: 18px; display: flex; gap: 18px; align-items: center;
+                   font-size: 13px; color: var(--ink-dim);">
+        <span>👆 Click the side buttons to step through</span>
+        <span>·</span>
+        <span>▶ Or hit "Auto-play flow" to watch the whole journey</span>
+      </div>
     `;
 
     case 'laptop': return `
-      <div class="eyebrow">Surface 3 · Laptop monitor</div>
-      <h2 class="tk">A tray app, not a browser extension.</h2>
-      <p class="lead">A Chrome extension only sees Chrome tabs. We use <code>active-win</code> to
-        introspect the foreground process — Roblox, Minecraft, VS Code, system Settings — so the
-        caregiver dashboard reads <i>"Munene · Roblox · 14m"</i>, not <i>"Chrome."</i></p>
+      <div class="eyebrow">💻 The laptop helper</div>
+      <h2 class="tk">A quiet little dot in the corner.</h2>
+      <p class="lead">It just notices what's on the screen — Roblox, YouTube, Khan Academy, anything —
+        and gently lets the grown-up know. During an active task, it can pop up a soft "focus" screen
+        until the watch says "done". It doesn't lock things forever, and it doesn't tattle.</p>
 
       <div class="grid-2" style="margin-top: 32px;">
         <div>
@@ -381,151 +394,135 @@ function slideHTML(id) {
       </div>
 
       <div class="grid-3" style="margin-top: 32px;">
-        <div class="card"><div class="label">Sample rate</div><h3 class="tk">2 s</h3>
-          <p style="color: var(--ink-dim); font-size: 13px;">Foreground app + idle seconds + lock state</p></div>
-        <div class="card"><div class="label">Categories</div><h3 class="tk">10</h3>
-          <p style="color: var(--ink-dim); font-size: 13px;">game · video · school · code · social · …</p></div>
-        <div class="card"><div class="label">OS coverage</div><h3 class="tk">Win · Mac · Linux</h3>
-          <p style="color: var(--ink-dim); font-size: 13px;">Plus Crostini on ChromeOS</p></div>
+        <div class="card"><div class="label">Checks in</div><h3 class="tk">Every 2s</h3>
+          <p style="color: var(--ink-dim); font-size: 13px;">Looks at the active window, nothing more 👀</p></div>
+        <div class="card"><div class="label">Knows the difference</div><h3 class="tk">10 kinds</h3>
+          <p style="color: var(--ink-dim); font-size: 13px;">Game · video · school · code · chat · …</p></div>
+        <div class="card"><div class="label">Works on</div><h3 class="tk">Any laptop</h3>
+          <p style="color: var(--ink-dim); font-size: 13px;">Windows, Mac, Linux, Chromebooks ✓</p></div>
       </div>
     `;
 
     case 'data': return `
-      <div class="eyebrow">Contracts</div>
-      <h2 class="tk">One Zod schema. Three runtimes.</h2>
-      <p class="lead">The same TS types compile down to validators on phone &amp; laptop and
-        match the firmware's GATT JSON shape — so a watch event flowing through BLE → phone →
-        Supabase → caregiver dashboard never gets reshaped.</p>
+      <div class="eyebrow">🧩 Under the hood</div>
+      <h2 class="tk">All three speak the same little language.</h2>
+      <p class="lead">A "task event" looks the same whether the watch wrote it, the laptop noticed it,
+        or the phone scheduled it. That's why the day on the parent's screen always matches what
+        actually happened — there's no translation in between.</p>
 
       <div class="grid-2" style="margin-top: 28px;">
         <div>
-          <h3 class="tk">Core types</h3>
-<pre class="code">type TaskEvent = {
-  kidId: string;
-  routineId: string;
-  taskId: string;
-  status: 'started' | 'done' | 'missed' | 'skipped' | 'retry';
-  source: 'watch' | 'phone' | 'laptop';
-  ts: number;            // epoch ms
-  durationMs?: number;
-};
-
-type LaptopHeartbeat = {
-  deviceId: string;
-  kidId: string;
-  ts: number;
-  focus: { app, title?, url?, category } | null;
-  idleSec: number;
-  locked: boolean;
-  audioActive: boolean;
-};</pre>
+          <h3 class="tk">A task event 🌱</h3>
+<pre class="code">{
+  kid:     "Munene",
+  routine: "Morning",
+  task:    "Brush Teeth",
+  status:  "done",        // or started / missed / skipped
+  who:     "watch",       // watch · phone · laptop
+  when:    7:12 AM
+}</pre>
+          <p style="color: var(--ink-dim); font-size: 13px; margin-top: 12px;">
+            That's it. Each surface writes the same shape. The grown-up's dashboard
+            just reads them in order.
+          </p>
         </div>
         <div>
-          <h3 class="tk">Realtime tables</h3>
-<pre class="code">-- packages/supabase-client/sql/schema.sql
-
-create table task_events (
-  id uuid primary key default gen_random_uuid(),
-  kid_id text references kids(id),
-  routine_id text not null,
-  task_id text not null,
-  status text not null,
-  source text not null,
-  ts bigint not null,
-  duration_ms bigint
-);
-
-alter publication supabase_realtime
-  add table task_events;</pre>
+          <h3 class="tk">Where it all lives 🏡</h3>
+<pre class="code">Supabase  (a tiny cloud database)
+  ├─ kids          — one per child
+  ├─ routines      — morning, school, evening
+  ├─ task_events   — what happened, when
+  ├─ laptop_signals— what's on screen
+  └─ nudges        — kind little messages</pre>
           <div style="margin-top: 16px;">
-            <span class="pill brand">RLS: kid owner only</span>
-            <span class="pill brand">5 events/sec realtime</span>
+            <span class="pill brand">🔒 Only you can see your kid's data</span>
+            <span class="pill brand">⚡ Live updates in &lt;1s</span>
           </div>
         </div>
       </div>
     `;
 
     case 'roadmap': return `
-      <div class="eyebrow">Build status</div>
-      <h2 class="tk">What ships today.</h2>
+      <div class="eyebrow">🌿 Where we are</div>
+      <h2 class="tk">What's working today, and what's next.</h2>
+      <p class="lead">Three apps you can actually run right now. The watch firmware is ready
+        to flash onto real hardware — the demo uses a faithful browser simulator until then.</p>
 
       <div class="grid-2" style="margin-top: 28px; gap: 36px;">
         <div>
-          <h3 class="tk">Working — runs on this laptop</h3>
+          <h3 class="tk">✅ Running, today</h3>
           <div class="card" style="margin-top: 12px;">
             <div class="status-row">
               <span class="status-dot ok"></span>
-              <span class="name">Caregiver app</span>
-              <span class="stack">React + Vite</span>
+              <span class="name">Caregiver phone app</span>
+              <span class="stack">7 screens, fully clickable</span>
             </div>
             <div class="status-row">
               <span class="status-dot ok"></span>
-              <span class="name">Laptop monitor</span>
-              <span class="stack">Electron + active-win</span>
+              <span class="name">Laptop helper</span>
+              <span class="stack">tray icon + focus lock</span>
             </div>
             <div class="status-row">
               <span class="status-dot ok"></span>
               <span class="name">Watch simulator</span>
-              <span class="stack">React + SVG</span>
+              <span class="stack">all 8 screens, animated</span>
             </div>
             <div class="status-row">
               <span class="status-dot ok"></span>
-              <span class="name">Shared schema + Supabase client</span>
-              <span class="stack">TypeScript · Zod</span>
+              <span class="name">Shared data language</span>
+              <span class="stack">phone, laptop, watch agree</span>
             </div>
             <div class="status-row">
               <span class="status-dot ok"></span>
-              <span class="name">Mock-mode demo</span>
-              <span class="stack">no creds needed</span>
+              <span class="name">Demo mode (no internet needed)</span>
+              <span class="stack">just open and go</span>
             </div>
           </div>
         </div>
 
         <div>
-          <h3 class="tk">Skeleton — flash to ship</h3>
+          <h3 class="tk">🛠 Ready, when hardware arrives</h3>
           <div class="card" style="margin-top: 12px;">
             <div class="status-row">
               <span class="status-dot skel"></span>
               <span class="name">Watch firmware (8 screens)</span>
-              <span class="stack">ESP-IDF · LVGL 9</span>
+              <span class="stack">ready to flash</span>
             </div>
             <div class="status-row">
               <span class="status-dot skel"></span>
-              <span class="name">BLE GATT server</span>
-              <span class="stack">NimBLE</span>
+              <span class="name">Bluetooth pairing</span>
+              <span class="stack">4-digit code on watch</span>
             </div>
             <div class="status-row">
               <span class="status-dot skel"></span>
-              <span class="name">OTA endpoint</span>
-              <span class="stack">2 × 3 MB partitions</span>
+              <span class="name">Wireless updates</span>
+              <span class="stack">push from caregiver app</span>
             </div>
             <div class="status-row">
               <span class="status-dot skel"></span>
-              <span class="name">Android APK pipeline</span>
-              <span class="stack">Capacitor 6 · Gradle</span>
+              <span class="name">Android APK</span>
+              <span class="stack">build pipeline wired</span>
             </div>
             <div class="status-row">
               <span class="status-dot skel"></span>
-              <span class="name">Electron installers</span>
-              <span class="stack">electron-builder</span>
+              <span class="name">Laptop installers</span>
+              <span class="stack">.exe / .dmg / .deb</span>
             </div>
           </div>
         </div>
       </div>
 
-      <div style="margin-top: 36px; padding: 18px 22px;
+      <div style="margin-top: 36px; padding: 22px;
         background: rgba(168,199,184,0.08);
-        border: 1px solid rgba(168,199,184,0.20); border-radius: 14px;">
-        <div style="color: var(--brand); font-size: 11px; font-weight: 800;
-          letter-spacing: 1.4px; text-transform: uppercase; margin-bottom: 6px;">
-          Run it
+        border: 1px solid rgba(168,199,184,0.20); border-radius: 14px;
+        text-align: center;">
+        <div style="font-family: var(--font-disp); font-weight: 800; font-size: 22px;
+                     color: var(--ink); margin-bottom: 8px;">
+          Thank you 🌱
         </div>
-        <div style="font-family: var(--font-mono); font-size: 13px; line-height: 1.8;">
-          <span style="color: var(--ink-dim);">$</span> pnpm install &nbsp;·&nbsp;
-          <span style="color: var(--ink-dim);">$</span> pnpm dev:caregiver &nbsp;·&nbsp;
-          <span style="color: var(--ink-dim);">$</span> pnpm dev:watch &nbsp;·&nbsp;
-          <span style="color: var(--ink-dim);">$</span> pnpm dev:laptop &nbsp;·&nbsp;
-          <span style="color: var(--ink-dim);">$</span> pnpm dev:presentation
+        <div style="font-size: 14px; color: var(--ink-dim); line-height: 1.6;">
+          We built this for kids who deserve calmer mornings —<br/>
+          and for the grown-ups who love them.
         </div>
       </div>
     `;
