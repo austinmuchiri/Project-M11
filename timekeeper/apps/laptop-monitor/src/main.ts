@@ -2,11 +2,18 @@ import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, powerMonitor } fr
 import * as path from 'node:path';
 import { startWatcher, stopWatcher, getCurrentSnapshot, type WatcherSnapshot } from './watcher';
 import { showLockscreen, hideLockscreen, isLockscreenVisible } from './lockscreen';
-import { initClient, pushHeartbeat, subscribeNudges } from './client';
+import { showAppBlock, hideAppBlock, isAppBlockVisible } from './app-block';
+import { initClient, pushHeartbeat, subscribeNudges, subscribeBlockCommands, sendBlockCommand } from './client';
 import { loadPairing, clearPairing } from './pairing';
+import type { BlockCommand } from '@timekeeper/schema';
 
 let tray: Tray | null = null;
 let popup: BrowserWindow | null = null;
+
+// Active block command received from caregiver — drives lockscreen + app overlay
+let activeBlock: BlockCommand | null = null;
+// App name to intercept (set on block_app command)
+let blockedAppName: string | null = null;
 
 const TRAY_ICON_GREEN = path.join(__dirname, '..', 'assets', 'tray-green.png');
 const TRAY_ICON_GREY  = path.join(__dirname, '..', 'assets', 'tray-grey.png');
@@ -28,12 +35,20 @@ async function startApp() {
   await startWatcher((snap) => {
     void onSnapshot(snap);
     refreshTray(snap);
+    checkAppBlock(snap);
   });
 
   const pairing = loadPairing();
   if (pairing) {
     subscribeNudges(pairing.kidId, (n) => {
       console.log('[main] nudge received:', n.message);
+    });
+
+    // Subscribe to caregiver block commands — pure command receiver
+    subscribeBlockCommands(pairing.kidId, (cmd) => {
+      console.log('[main] block command:', cmd.action, cmd.payload);
+      handleBlockCommand(cmd);
+      refreshTray(getCurrentSnapshot());
     });
   }
 
@@ -79,25 +94,91 @@ function refreshTray(snap: WatcherSnapshot | null) {
     ? `${snap.focus.app} · ${snap.focus.category}`
     : 'idle';
 
-  const menu = Menu.buildFromTemplate([
+  const blockStatusLabel = activeBlock?.action === 'lock_screen'
+    ? `🔒 Lock active · ${activeBlock.payload?.taskLabel ?? 'Focus time'}`
+    : activeBlock?.action === 'block_app'
+      ? `🚫 ${activeBlock.payload?.appName ?? 'App'} blocked`
+      : null;
+
+  const menuItems: Electron.MenuItemConstructorOptions[] = [
     { label: paired ? `Paired · ${loadPairing()!.kidName}` : 'Not paired', enabled: false },
-    { label: focusLine, enabled: false },
+    blockStatusLabel
+      ? { label: blockStatusLabel, enabled: false }
+      : { label: focusLine, enabled: false },
     { label: snap ? `${snap.idleSec}s idle` : 'no data', enabled: false },
     { type: 'separator' },
     { label: 'Show status…', click: () => togglePopup() },
-    { label: isLockscreenVisible() ? 'Hide lock' : 'Test lockscreen',
-      click: () => isLockscreenVisible() ? hideLockscreen() : showLockscreen('Brush Teeth', 180) },
+    ...(activeBlock
+      ? [{ label: 'Request unlock…', click: () => requestUnlock() }]
+      : [{ label: 'Test lockscreen', click: () => showLockscreen('Brush Teeth', 180) }]),
     { type: 'separator' },
     { label: paired ? 'Unpair…' : 'Pair with caregiver…', click: () => paired ? unpair() : pair() },
     { label: 'Quit', click: () => { stopWatcher(); app.exit(0); } },
-  ]);
-  tray.setContextMenu(menu);
+  ];
+
+  tray.setContextMenu(Menu.buildFromTemplate(menuItems));
 
   const iconPath = paired ? TRAY_ICON_GREEN : TRAY_ICON_GREY;
   const next = nativeImage.createFromPath(iconPath);
   if (!next.isEmpty()) tray.setImage(next);
 
-  tray.setToolTip(`TimeKeeper · ${focusLine}`);
+  tray.setToolTip(blockStatusLabel ?? `Routine Tracker · ${focusLine}`);
+}
+
+function handleBlockCommand(cmd: BlockCommand) {
+  switch (cmd.action) {
+    case 'lock_screen':
+      activeBlock = cmd;
+      blockedAppName = null;
+      hideAppBlock();
+      showLockscreen(cmd.payload?.taskLabel ?? 'Focus time', cmd.payload?.expectedSec ?? 180);
+      break;
+
+    case 'unlock_screen':
+      activeBlock = null;
+      blockedAppName = null;
+      hideLockscreen();
+      hideAppBlock();
+      break;
+
+    case 'block_app':
+      activeBlock = cmd;
+      blockedAppName = cmd.payload?.appName ?? null;
+      // The watcher tick will show the overlay when the blocked app is in focus
+      break;
+
+    case 'unblock_app':
+      activeBlock = null;
+      blockedAppName = null;
+      hideAppBlock();
+      break;
+  }
+}
+
+function checkAppBlock(snap: WatcherSnapshot) {
+  if (!blockedAppName) return;
+  const appName = snap.focus?.app ?? '';
+  const matched = appName.toLowerCase().includes(blockedAppName.toLowerCase());
+  if (matched && !isAppBlockVisible()) {
+    showAppBlock(blockedAppName, activeBlock?.payload?.taskLabel ?? 'your routine');
+  } else if (!matched && isAppBlockVisible()) {
+    hideAppBlock();
+  }
+}
+
+async function requestUnlock() {
+  const pairing = loadPairing();
+  if (!pairing) return;
+  // Send an unlock_screen command back — caregiver app sees it via subscribeBlockCommands audit
+  await sendBlockCommand({
+    kidId: pairing.kidId,
+    action: 'unlock_screen',
+    payload: { taskLabel: '[Kid requested unlock from laptop]' },
+    createdAt: Date.now(),
+  }).catch((err) => console.error('[main] request unlock failed', err));
+  // Also clear local block state so the overlay drops immediately
+  handleBlockCommand({ kidId: pairing.kidId, action: 'unlock_screen', createdAt: Date.now() });
+  refreshTray(getCurrentSnapshot());
 }
 
 function togglePopup() {

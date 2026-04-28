@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import {
   APP, AppIcon, Card, IconBadge, MiniWatchFace, Pill, RingGauge,
   StatusDot, TASK_ICON, type IconName,
 } from '@timekeeper/ui';
-import { useStore, resolveTodayTasks, activeTask } from '../store.js';
+import { useStore, resolveTodayTasks, activeTask, lockLaptop, unlockLaptop, blockApp } from '../store.js';
 
 export function HomeScreen({ onNudge, onSchedule }: {
   onNudge: () => void;
@@ -167,6 +168,9 @@ export function HomeScreen({ onNudge, onSchedule }: {
         </div>
       </div>
 
+      {/* Focus controls */}
+      <FocusControlsCard/>
+
       {/* Today summary */}
       <Card padding={14}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -219,6 +223,137 @@ export function HomeScreen({ onNudge, onSchedule }: {
         <StatCard icon="star" iconColor={APP.star}    label="Stars · wk" value={23}/>
       </div>
     </div>
+  );
+}
+
+const BLOCKABLE_APPS: { name: string; icon: IconName }[] = [
+  { name: 'Roblox',   icon: 'play' },
+  { name: 'YouTube',  icon: 'play' },
+  { name: 'Browser',  icon: 'dot'  },
+];
+
+function FocusControlsCard() {
+  const kid        = useStore(s => s.kid);
+  const active     = useStore(activeTask);
+  const activeBlock = useStore(s => s.activeBlock);
+  const [showPicker, setShowPicker] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  const onLock = async () => {
+    await lockLaptop(kid.id, active ?? undefined);
+    setShowPicker(false);
+    showToast('Laptop locked');
+  };
+
+  const onBlockApp = (appName: string) => async () => {
+    await blockApp(kid.id, appName, active ?? undefined);
+    setShowPicker(false);
+    showToast(`${appName} blocked`);
+  };
+
+  const onUnlock = async () => {
+    await unlockLaptop(kid.id);
+    showToast('Lock cleared');
+  };
+
+  const isLocked = activeBlock?.action === 'lock_screen';
+  const blockedApp = activeBlock?.action === 'block_app' ? (activeBlock.payload?.appName ?? 'App') : null;
+
+  return (
+    <Card padding={14}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <IconBadge name="laptop" color={activeBlock ? APP.accent : APP.brand} size={28} iconSize={14}/>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: APP.ink }}>Focus controls</div>
+            <div style={{ fontSize: 11, color: APP.inkDim, marginTop: 1 }}>
+              {isLocked ? 'Screen locked' : blockedApp ? `${blockedApp} blocked` : 'Laptop open'}
+            </div>
+          </div>
+        </div>
+        {activeBlock && (
+          <div style={{
+            fontSize: 10, fontWeight: 800, letterSpacing: 1.2, textTransform: 'uppercase',
+            color: APP.accent, background: APP.accentSoft, borderRadius: 6, padding: '3px 8px',
+          }}>Active</div>
+        )}
+      </div>
+
+      {toast && (
+        <div style={{
+          padding: '8px 12px', borderRadius: 8, background: APP.brandSoft,
+          color: APP.brand, fontWeight: 700, fontSize: 12, marginBottom: 10,
+          display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          <AppIcon name="send" size={12} color={APP.brand}/>
+          {toast}
+        </div>
+      )}
+
+      {showPicker && !activeBlock && (
+        <div style={{ marginBottom: 10 }}>
+          <div style={{
+            fontSize: 10, fontWeight: 800, letterSpacing: 1.2, textTransform: 'uppercase',
+            color: APP.inkDim, marginBottom: 8,
+          }}>Block which app?</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+            {BLOCKABLE_APPS.map(a => (
+              <button key={a.name} onClick={onBlockApp(a.name)} style={{
+                padding: '10px 6px', borderRadius: 10,
+                border: `1.5px solid ${APP.border}`, background: APP.surfaceAlt,
+                cursor: 'pointer', fontFamily: APP.font,
+                fontSize: 12, fontWeight: 700, color: APP.ink,
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+              }}>
+                <IconBadge name={a.icon} color={APP.accent} size={28} iconSize={14}/>
+                {a.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!activeBlock ? (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onLock} aria-label="Lock laptop screen now" style={{
+            flex: 1, height: 40, borderRadius: 10, border: 'none',
+            background: APP.brand, color: '#fff', fontFamily: APP.font,
+            fontWeight: 800, fontSize: 13, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          }}>
+            🔒 Lock laptop
+          </button>
+          <button
+            onClick={() => setShowPicker(p => !p)}
+            aria-label="Block a specific app"
+            style={{
+              flex: 1, height: 40, borderRadius: 10,
+              border: `1.5px solid ${APP.accent}`,
+              background: showPicker ? APP.accentSoft : 'transparent',
+              color: APP.accent, fontFamily: APP.font,
+              fontWeight: 800, fontSize: 13, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+            }}
+          >
+            🚫 Block apps
+          </button>
+        </div>
+      ) : (
+        <button onClick={onUnlock} aria-label="Override: unlock laptop now" style={{
+          width: '100%', height: 40, borderRadius: 10,
+          border: `1.5px solid ${APP.brand}`,
+          background: 'transparent', color: APP.brand,
+          fontFamily: APP.font, fontWeight: 800, fontSize: 13, cursor: 'pointer',
+        }}>
+          Override · Unlock now
+        </button>
+      )}
+    </Card>
   );
 }
 

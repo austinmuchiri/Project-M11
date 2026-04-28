@@ -185,6 +185,30 @@ export function categorize(processName: string, title?: string): AppCategory {
 }
 
 // ─────────────────────────────────────────────────────────
+// Block commands — caregiver → laptop (realtime control plane)
+// One source of truth: all locks/unblocks are rows; both sides subscribe.
+// ─────────────────────────────────────────────────────────
+
+export const BlockAction = z.enum(['lock_screen', 'unlock_screen', 'block_app', 'unblock_app']);
+export type BlockAction = z.infer<typeof BlockAction>;
+
+export const BlockCommand = z.object({
+  id: z.string().uuid().optional(),
+  kidId: z.string(),
+  deviceId: z.string().optional(),
+  action: BlockAction,
+  payload: z.object({
+    taskId: z.string().optional(),
+    taskLabel: z.string().optional(),
+    expectedSec: z.number().optional(),
+    appName: z.string().optional(),
+  }).optional(),
+  expiresAt: z.number().int().optional(), // auto-release epoch ms, null = manual only
+  createdAt: z.number().int(),
+});
+export type BlockCommand = z.infer<typeof BlockCommand>;
+
+// ─────────────────────────────────────────────────────────
 // BLE protocol — watch ↔ phone (mirrors TaskEvent for offline buffering)
 // ─────────────────────────────────────────────────────────
 

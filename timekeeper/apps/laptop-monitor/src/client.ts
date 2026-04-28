@@ -1,5 +1,5 @@
 import { createTimekeeperClient, type TimekeeperClient } from '@timekeeper/supabase-client';
-import type { LaptopHeartbeat, Nudge } from '@timekeeper/schema';
+import type { LaptopHeartbeat, Nudge, BlockCommand } from '@timekeeper/schema';
 
 let client: TimekeeperClient | null = null;
 
@@ -16,4 +16,14 @@ export async function pushHeartbeat(h: LaptopHeartbeat): Promise<void> {
 export function subscribeNudges(kidId: string, cb: (n: Nudge) => void): () => void {
   if (!client) return () => {};
   return client.subscribeNudges(kidId, cb);
+}
+
+export function subscribeBlockCommands(kidId: string, cb: (cmd: BlockCommand) => void): () => void {
+  if (!client) return () => {};
+  return client.subscribeBlockCommands(kidId, cb);
+}
+
+export async function sendBlockCommand(cmd: BlockCommand): Promise<void> {
+  if (!client) return;
+  await client.sendBlockCommand(cmd);
 }

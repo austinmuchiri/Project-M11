@@ -1,0 +1,19 @@
+# Components pulled by `idf.py build` (idf-component-manager).
+#
+# waveshare__esp32_s3_touch_amoled_2_06 is Waveshare's official BSP for this
+# exact board — handles SH8601 AMOLED + CST816 touch + I2C/QSPI bus init.
+# It re-exports lvgl as a transitive dependency so we don't need to list it.
+#
+# If the registry hasn't published that exact name on your IDF version, swap
+# to "espressif/esp_lcd_sh8601" + "espressif/esp_lcd_touch_cst816s" and pull
+# init code from Waveshare's wiki sample.
+
+dependencies:
+  idf:
+    version: ">=5.1"
+  lvgl/lvgl:
+    version: "~9.1.0"
+  waveshare/esp32_s3_touch_amoled_2_06:
+    version: "*"
+    rules:
+      - if: "idf_version >=5.1"

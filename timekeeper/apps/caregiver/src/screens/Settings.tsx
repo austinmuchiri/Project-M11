@@ -18,6 +18,9 @@ export function SettingsScreen({ onRewards }: { onRewards: () => void }) {
   const [quietHours, setQuietHours] = useState(true);
   const [escalateNanny, setEscalateNanny] = useState(true);
   const [hapticOnly, setHapticOnly] = useState(false);
+  const [lockOnTask, setLockOnTask] = useState(false);
+  const [blockGames, setBlockGames] = useState(false);
+  const [blockedApps, setBlockedApps] = useState<string[]>(['Roblox']);
 
   return (
     <div style={{ padding: '0 16px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -103,6 +106,55 @@ export function SettingsScreen({ onRewards }: { onRewards: () => void }) {
           </div>
         ))}
       </Card>
+
+      <SectionTitle>Focus &amp; blocking</SectionTitle>
+      <Card padding={0}>
+        {([
+          { k: 'lt', label: 'Lock during active task',           detail: 'Laptop locks when a task starts on watch', val: lockOnTask,  set: setLockOnTask  },
+          { k: 'bg', label: 'Block games during routine windows', detail: 'Hides game apps while a routine is active',  val: blockGames,  set: setBlockGames  },
+        ] as const).map((row, i, arr) => (
+          <div key={row.k} style={{
+            display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
+            borderBottom: i === arr.length - 1 ? 'none' : `1px solid ${APP.border}`,
+          }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: APP.ink }}>{row.label}</div>
+              <div style={{ fontSize: 11, color: APP.inkDim, marginTop: 1 }}>{row.detail}</div>
+            </div>
+            <Toggle on={row.val} onChange={row.set}/>
+          </div>
+        ))}
+      </Card>
+
+      {blockedApps.length > 0 && (
+        <Card padding={14}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1.2, textTransform: 'uppercase', color: APP.inkDim, marginBottom: 10 }}>
+            Currently blocked
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {blockedApps.map(app => (
+              <div key={app} style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                background: APP.accentSoft, borderRadius: 8,
+                padding: '5px 10px',
+              }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: APP.accent }}>{app}</span>
+                <button
+                  aria-label={`Remove ${app} block`}
+                  onClick={() => setBlockedApps(prev => prev.filter(a => a !== app))}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    padding: 0, lineHeight: 1,
+                    display: 'flex', alignItems: 'center',
+                  }}
+                >
+                  <AppIcon name="minus" size={12} color={APP.accent}/>
+                </button>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <SectionTitle>More</SectionTitle>
       <Card padding={0}>

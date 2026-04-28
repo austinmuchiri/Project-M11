@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type {
-  Routine, TaskEvent, Device, Alert, LaptopHeartbeat, Nudge,
+  Routine, TaskEvent, Device, Alert, LaptopHeartbeat, Nudge, BlockCommand,
 } from '@timekeeper/schema';
 import {
   MOCK_ROUTINES, MOCK_DEVICES, MOCK_ALERTS, MOCK_EVENTS_TODAY,
@@ -16,9 +16,34 @@ export * from './mock-data.js';
 // run on any laptop with no network.
 // ─────────────────────────────────────────────────────────
 
+export interface AuthSession {
+  userId: string;
+  email: string;
+}
+
+export interface KidProfile {
+  id: string;
+  name: string;
+  age: number;
+  initials: string;
+  avatarColor: string;
+}
+
 export interface TimekeeperClient {
   isMock: boolean;
 
+  // Auth
+  getSession(): Promise<AuthSession | null>;
+  signIn(email: string, password: string): Promise<AuthSession>;
+  signUp(email: string, password: string): Promise<AuthSession>;
+  signOut(): Promise<void>;
+  onAuthChange(cb: (s: AuthSession | null) => void): () => void;
+
+  // Resolve the active kid for the signed-in user. Single-kid for now;
+  // returns the first kids row owned by the user. Returns null if none.
+  resolveKid(): Promise<KidProfile | null>;
+
+  // Data
   routines(kidId: string): Promise<Routine[]>;
   events(kidId: string, sinceTs?: number): Promise<TaskEvent[]>;
   devices(kidId: string): Promise<Device[]>;
@@ -32,6 +57,10 @@ export interface TimekeeperClient {
   subscribeEvents(kidId: string, cb: (e: TaskEvent) => void): () => void;
   subscribeHeartbeat(kidId: string, cb: (h: LaptopHeartbeat) => void): () => void;
   subscribeNudges(kidId: string, cb: (n: Nudge) => void): () => void;
+
+  // Block commands — caregiver writes, laptop reads via realtime
+  sendBlockCommand(cmd: BlockCommand): Promise<void>;
+  subscribeBlockCommands(kidId: string, cb: (cmd: BlockCommand) => void): () => void;
 }
 
 // ─────────────────────────────────────────────────────────
@@ -46,6 +75,55 @@ class SupabaseImpl implements TimekeeperClient {
     this.sb = createClient(url, anonKey, {
       realtime: { params: { eventsPerSecond: 5 } },
     });
+  }
+
+  async getSession(): Promise<AuthSession | null> {
+    const { data } = await this.sb.auth.getSession();
+    if (!data.session) return null;
+    return { userId: data.session.user.id, email: data.session.user.email ?? '' };
+  }
+
+  async signIn(email: string, password: string): Promise<AuthSession> {
+    const { data, error } = await this.sb.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    if (!data.session) throw new Error('No session after sign-in');
+    return { userId: data.session.user.id, email: data.session.user.email ?? '' };
+  }
+
+  async signUp(email: string, password: string): Promise<AuthSession> {
+    const { data, error } = await this.sb.auth.signUp({ email, password });
+    if (error) throw error;
+    // Email confirmation may be required depending on project settings.
+    if (!data.session) {
+      // Try immediate sign-in (works if confirm-email is disabled)
+      return this.signIn(email, password);
+    }
+    return { userId: data.session.user.id, email: data.session.user.email ?? '' };
+  }
+
+  async signOut(): Promise<void> {
+    const { error } = await this.sb.auth.signOut();
+    if (error) throw error;
+  }
+
+  onAuthChange(cb: (s: AuthSession | null) => void): () => void {
+    const { data } = this.sb.auth.onAuthStateChange((_evt, session) => {
+      if (!session) cb(null);
+      else cb({ userId: session.user.id, email: session.user.email ?? '' });
+    });
+    return () => data.subscription.unsubscribe();
+  }
+
+  async resolveKid(): Promise<KidProfile | null> {
+    const { data, error } = await this.sb
+      .from('kids').select('*').limit(1).maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return {
+      id: data.id, name: data.name, age: data.age ?? 8,
+      initials: data.initials ?? data.name[0]?.toUpperCase() ?? '?',
+      avatarColor: data.avatar_color ?? '#C99466',
+    };
   }
 
   async routines(kidId: string): Promise<Routine[]> {
@@ -132,6 +210,24 @@ class SupabaseImpl implements TimekeeperClient {
       .subscribe();
     return () => { void this.sb.removeChannel(ch); };
   }
+
+  async sendBlockCommand(cmd: BlockCommand): Promise<void> {
+    const { error } = await this.sb.from('block_commands').insert({
+      kid_id: cmd.kidId, device_id: cmd.deviceId ?? null,
+      action: cmd.action, payload: cmd.payload ?? null,
+      expires_at: cmd.expiresAt ?? null, created_at: cmd.createdAt,
+    });
+    if (error) throw error;
+  }
+
+  subscribeBlockCommands(kidId: string, cb: (cmd: BlockCommand) => void): () => void {
+    const ch = this.sb.channel(`blocks:${kidId}`)
+      .on('postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'block_commands', filter: `kid_id=eq.${kidId}` },
+          (p) => cb(rowToBlockCommand(p.new)))
+      .subscribe();
+    return () => { void this.sb.removeChannel(ch); };
+  }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -152,6 +248,9 @@ class MockImpl implements TimekeeperClient {
   private eventListeners = new Set<Listener<TaskEvent>>();
   private heartbeatListeners = new Set<Listener<LaptopHeartbeat>>();
   private nudgeListeners = new Set<Listener<Nudge>>();
+  private blockCommandListeners = new Set<Listener<BlockCommand>>();
+  private authListeners = new Set<(s: AuthSession | null) => void>();
+  private session: AuthSession | null = { userId: 'mock-user', email: 'demo@local' };
 
   constructor() {
     const ls = getLocalStorage();
@@ -168,6 +267,25 @@ class MockImpl implements TimekeeperClient {
     if (!ls) return;
     try { ls.setItem('tk_events', JSON.stringify(this.eventsStore)); }
     catch { /* ignore */ }
+  }
+
+  async getSession() { return this.session; }
+  async signIn(email: string, _pw: string) {
+    this.session = { userId: 'mock-user', email };
+    this.authListeners.forEach(l => l(this.session));
+    return this.session;
+  }
+  async signUp(email: string, pw: string) { return this.signIn(email, pw); }
+  async signOut() {
+    this.session = null;
+    this.authListeners.forEach(l => l(null));
+  }
+  onAuthChange(cb: (s: AuthSession | null) => void) {
+    this.authListeners.add(cb);
+    return () => { this.authListeners.delete(cb); };
+  }
+  async resolveKid(): Promise<KidProfile | null> {
+    return { id: MOCK_KID_ID, name: 'Munene', age: 8, initials: 'M', avatarColor: '#C99466' };
   }
 
   async routines(kidId: string) { return this.routinesStore.filter(r => r.kidId === kidId); }
@@ -204,6 +322,15 @@ class MockImpl implements TimekeeperClient {
   subscribeNudges(_kidId: string, cb: Listener<Nudge>) {
     this.nudgeListeners.add(cb);
     return () => { this.nudgeListeners.delete(cb); };
+  }
+
+  async sendBlockCommand(cmd: BlockCommand) {
+    this.blockCommandListeners.forEach(l => l(cmd));
+  }
+
+  subscribeBlockCommands(_kidId: string, cb: Listener<BlockCommand>) {
+    this.blockCommandListeners.add(cb);
+    return () => { this.blockCommandListeners.delete(cb); };
   }
 }
 
@@ -328,6 +455,18 @@ function heartbeatToRow(h: LaptopHeartbeat): Record<string, unknown> {
     device_id: h.deviceId, kid_id: h.kidId, ts: h.ts,
     focus: h.focus, idle_sec: h.idleSec, locked: h.locked,
     audio_active: h.audioActive,
+  };
+}
+
+function rowToBlockCommand(r: Record<string, unknown>): BlockCommand {
+  return {
+    id: r.id as string | undefined,
+    kidId: r.kid_id as string,
+    deviceId: r.device_id as string | undefined,
+    action: r.action as BlockCommand['action'],
+    payload: r.payload as BlockCommand['payload'],
+    expiresAt: r.expires_at as number | undefined,
+    createdAt: r.created_at as number,
   };
 }
 

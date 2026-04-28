@@ -2,7 +2,7 @@ import {
   APP, AppIcon, Btn, Card, IconBadge, SectionTitle, Toggle,
   type IconName,
 } from '@timekeeper/ui';
-import { useStore, resolveTodayTasks } from '../store.js';
+import { useStore, resolveTodayTasks, toggleRoutineActive } from '../store.js';
 
 const PRESETS: { id: string; icon: IconName; color: string }[] = [
   { id: 'morning', icon: 'sun',    color: APP.accent },
@@ -34,7 +34,7 @@ export function ScheduleScreen({ selectedId, onSelect }: {
             }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <IconBadge name={preset.icon} color={preset.color} size={32} iconSize={16}/>
-                <Toggle on={r.active} onChange={() => {}}/>
+                <Toggle on={r.active} onChange={() => toggleRoutineActive(r.id)}/>
               </div>
               <div style={{ marginTop: 10, fontFamily: APP.fontDisp, fontSize: 16, fontWeight: 800, color: APP.ink }}>
                 {r.name}
@@ -99,7 +99,8 @@ export function ScheduleScreen({ selectedId, onSelect }: {
           );
         })}
       </Card>
-
+      
+      {/* This part is incomplete, no action is attached to the buttons */}
       <div style={{ display: 'flex', gap: 10 }}>
         <Btn variant="secondary" icon={<AppIcon name="plus" size={14}/>} full>Add task</Btn>
         <Btn variant="primary"   icon={<AppIcon name="refresh" size={14} color="#fff"/>} full>Sync to watch</Btn>

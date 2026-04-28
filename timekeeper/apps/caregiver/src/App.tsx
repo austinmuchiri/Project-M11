@@ -8,6 +8,7 @@ import { AlertsScreen } from './screens/Alerts.js';
 import { SettingsScreen } from './screens/Settings.js';
 import { NudgeScreen } from './screens/Nudge.js';
 import { RewardsScreen } from './screens/Rewards.js';
+import { LoginScreen } from './screens/Login.js';
 
 type ScreenId = 'home' | 'schedule' | 'analytics' | 'notes' | 'settings' | 'nudge' | 'rewards';
 
@@ -26,12 +27,27 @@ export function App() {
   const [screen, setScreen] = useState<ScreenId>('home');
   const [selectedRoutine, setSelectedRoutine] = useState('morning');
 
-  const ready  = useStore(s => s.ready);
-  const isMock = useStore(s => s.isMock);
-  const kid    = useStore(s => s.kid);
-  const unread = useStore(unreadAlertCount);
+  const ready   = useStore(s => s.ready);
+  const isMock  = useStore(s => s.isMock);
+  const session = useStore(s => s.session);
+  const kid     = useStore(s => s.kid);
+  const unread  = useStore(unreadAlertCount);
+  const bootError = useStore(s => s.bootstrapError);
 
   const meta = META[screen];
+
+  // Not authenticated yet (real Supabase mode only — mock auto-signs in)
+  if (ready && !session) {
+    return (
+      <div style={{
+        width: '100%', height: '100vh', display: 'flex', flexDirection: 'column',
+        background: APP.bg, color: APP.ink, fontFamily: APP.font,
+      }}>
+        <style>{GLOBAL_CSS}</style>
+        <LoginScreen onSignedIn={() => { /* auth listener triggers reload */ }}/>
+      </div>
+    );
+  }
 
   return (
     <div style={{
@@ -49,6 +65,13 @@ export function App() {
         }}>
           Demo mode · in-memory data · no Supabase
         </div>
+      )}
+
+      {bootError && (
+        <div style={{
+          padding: '10px 14px', background: APP.dangerSoft, color: APP.danger,
+          fontSize: 12, fontWeight: 700,
+        }}>{bootError}</div>
       )}
 
       <AppHeader

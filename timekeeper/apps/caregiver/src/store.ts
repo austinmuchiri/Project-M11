@@ -1,34 +1,40 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import {
-  createTimekeeperClient, MOCK_KID_ID, MOCK_KID,
-  type TimekeeperClient,
+  createTimekeeperClient, MOCK_KID,
+  type TimekeeperClient, type AuthSession, type KidProfile,
 } from '@timekeeper/supabase-client';
 import type {
-  Routine, TaskEvent, Device, Alert, LaptopHeartbeat, Nudge,
+  Routine, TaskEvent, Device, Alert, LaptopHeartbeat, Nudge, BlockCommand,
 } from '@timekeeper/schema';
 
-const client: TimekeeperClient = createTimekeeperClient();
+export const client: TimekeeperClient = createTimekeeperClient();
 
 export interface State {
   ready: boolean;
   isMock: boolean;
-  kid: typeof MOCK_KID;
+  session: AuthSession | null;
+  kid: KidProfile;
   routines: Routine[];
   events: TaskEvent[];
   devices: Device[];
   alerts: Alert[];
   heartbeat: LaptopHeartbeat | null;
+  bootstrapError: string | null;
+  activeBlock: BlockCommand | null;
 }
 
 let state: State = {
   ready: false,
   isMock: client.isMock,
+  session: null,
   kid: MOCK_KID,
   routines: [],
   events: [],
   devices: [],
   alerts: [],
   heartbeat: null,
+  bootstrapError: null,
+  activeBlock: null,
 };
 
 const listeners = new Set<() => void>();
@@ -56,23 +62,58 @@ export function useStore<T>(selector: (s: State) => T): T {
 }
 
 let bootstrapped = false;
+let unsubAuth: (() => void) | null = null;
 
-export async function bootstrap() {
+export async function bootstrapAuth() {
   if (bootstrapped) return;
   bootstrapped = true;
 
-  const kidId = MOCK_KID_ID;
-  const [routines, events, devices, alerts, heartbeat] = await Promise.all([
-    client.routines(kidId),
-    client.events(kidId, Date.now() - 24 * 60 * 60 * 1000),
-    client.devices(kidId),
-    client.alerts(kidId),
-    client.heartbeat(kidId),
-  ]);
-  set({ ready: true, routines, events, devices, alerts, heartbeat });
+  // Restore session from local storage if any
+  const session = await client.getSession().catch(() => null);
+  set({ session });
 
-  client.subscribeEvents(kidId, (e) => set({ events: [...state.events, e] }));
-  client.subscribeHeartbeat(kidId, (h) => set({ heartbeat: h }));
+  // React to subsequent auth changes (sign-in / sign-out)
+  unsubAuth = client.onAuthChange((s) => {
+    set({ session: s, ready: false });
+    if (s) void loadKidData();
+    else  set({ routines: [], events: [], devices: [], alerts: [], heartbeat: null });
+  });
+
+  if (session) await loadKidData();
+  else set({ ready: true });   // unauth state still "ready" — show login
+}
+
+async function loadKidData() {
+  try {
+    const kid = await client.resolveKid();
+    if (!kid) {
+      set({
+        ready: true,
+        bootstrapError: 'No kid profile found for your account. Add one via the SQL editor (see IMPLEMENTATION.md §1).',
+      });
+      return;
+    }
+    const kidId = kid.id;
+    const [routines, events, devices, alerts, heartbeat] = await Promise.all([
+      client.routines(kidId),
+      client.events(kidId, Date.now() - 24 * 60 * 60 * 1000),
+      client.devices(kidId),
+      client.alerts(kidId),
+      client.heartbeat(kidId),
+    ]);
+    set({ ready: true, kid, routines, events, devices, alerts, heartbeat, bootstrapError: null });
+
+    client.subscribeEvents(kidId, (e) => set({ events: [...state.events, e] }));
+    client.subscribeHeartbeat(kidId, (h) => set({ heartbeat: h }));
+  } catch (err) {
+    set({ ready: true, bootstrapError: err instanceof Error ? err.message : 'Failed to load data' });
+  }
+}
+
+export async function signOut() {
+  await client.signOut();
+  if (unsubAuth) { unsubAuth(); unsubAuth = null; }
+  bootstrapped = false;
 }
 
 export async function recordEvent(ev: TaskEvent) {
@@ -82,8 +123,43 @@ export async function recordEvent(ev: TaskEvent) {
 
 export async function sendNudge(n: Nudge) { await client.sendNudge(n); }
 
+export function toggleRoutineActive(routineId: string) {
+  set({
+    routines: state.routines.map(r =>
+      r.id === routineId ? { ...r, active: !r.active } : r
+    ),
+  });
+}
+
+export async function lockLaptop(kidId: string, task?: { taskId: string; label: string; expectedMinutes: number }) {
+  const cmd: BlockCommand = {
+    kidId, action: 'lock_screen',
+    payload: task ? { taskId: task.taskId, taskLabel: task.label, expectedSec: task.expectedMinutes * 60 } : undefined,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 2 * 60 * 60 * 1000, // auto-release after 2 h
+  };
+  set({ activeBlock: cmd });
+  await client.sendBlockCommand(cmd);
+}
+
+export async function unlockLaptop(kidId: string) {
+  const cmd: BlockCommand = { kidId, action: 'unlock_screen', createdAt: Date.now() };
+  set({ activeBlock: null });
+  await client.sendBlockCommand(cmd);
+}
+
+export async function blockApp(kidId: string, appName: string, task?: { taskId: string; label: string }) {
+  const cmd: BlockCommand = {
+    kidId, action: 'block_app',
+    payload: { appName, taskId: task?.taskId, taskLabel: task?.label },
+    createdAt: Date.now(),
+  };
+  set({ activeBlock: cmd });
+  await client.sendBlockCommand(cmd);
+}
+
 export function useBootstrap() {
-  useEffect(() => { void bootstrap(); }, []);
+  useEffect(() => { void bootstrapAuth(); }, []);
 }
 
 // ─────────────────────────────────────────────────────────
