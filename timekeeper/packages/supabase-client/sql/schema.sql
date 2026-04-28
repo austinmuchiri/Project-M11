@@ -114,3 +114,19 @@ create policy "heartbeat: owner"       on laptop_heartbeat
   for all using (tk_owns_kid(kid_id))   with check (tk_owns_kid(kid_id));
 create policy "nudges: owner"          on nudges
   for all using (tk_owns_kid(kid_id))   with check (tk_owns_kid(kid_id));
+
+-- Block commands — caregiver writes, laptop reads via realtime
+create table if not exists block_commands (
+  id          uuid primary key default gen_random_uuid(),
+  kid_id      text references kids(id) on delete cascade,
+  device_id   text references devices(id),
+  action      text not null check (action in ('lock_screen','unlock_screen','block_app','unblock_app')),
+  payload     jsonb,
+  expires_at  bigint,
+  created_at  bigint not null
+);
+create index if not exists block_commands_kid_ts_idx on block_commands (kid_id, created_at desc);
+alter table block_commands enable row level security;
+create policy "block_commands: owner" on block_commands
+  for all using (tk_owns_kid(kid_id)) with check (tk_owns_kid(kid_id));
+alter publication supabase_realtime add table block_commands;

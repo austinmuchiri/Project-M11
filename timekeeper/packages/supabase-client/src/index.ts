@@ -50,6 +50,7 @@ export interface TimekeeperClient {
   alerts(kidId: string): Promise<Alert[]>;
   heartbeat(kidId: string): Promise<LaptopHeartbeat | null>;
 
+  updateRoutine(routineId: string, patch: { active?: boolean; tasks?: Routine['tasks'] }): Promise<void>;
   recordEvent(ev: TaskEvent): Promise<void>;
   sendNudge(n: Nudge): Promise<void>;
   pushHeartbeat(h: LaptopHeartbeat): Promise<void>;
@@ -161,6 +162,14 @@ class SupabaseImpl implements TimekeeperClient {
       .eq('kid_id', kidId).order('ts', { ascending: false }).limit(1).maybeSingle();
     if (error) throw error;
     return data ? rowToHeartbeat(data) : null;
+  }
+
+  async updateRoutine(routineId: string, patch: { active?: boolean; tasks?: Routine['tasks'] }): Promise<void> {
+    const row: Record<string, unknown> = {};
+    if (patch.active !== undefined) row.active = patch.active;
+    if (patch.tasks !== undefined) row.tasks = patch.tasks;
+    const { error } = await this.sb.from('routines').update(row).eq('id', routineId);
+    if (error) throw error;
   }
 
   async recordEvent(ev: TaskEvent): Promise<void> {
@@ -295,6 +304,12 @@ class MockImpl implements TimekeeperClient {
   async devices(kidId: string) { return this.devicesStore.filter(d => d.kidId === kidId); }
   async alerts(kidId: string) { return this.alertsStore.filter(a => a.kidId === kidId); }
   async heartbeat(_kidId: string) { return this.heartbeatStore; }
+
+  async updateRoutine(routineId: string, patch: { active?: boolean; tasks?: Routine['tasks'] }) {
+    this.routinesStore = this.routinesStore.map(r =>
+      r.id === routineId ? { ...r, ...patch } : r
+    );
+  }
 
   async recordEvent(ev: TaskEvent) {
     this.eventsStore.push(ev);

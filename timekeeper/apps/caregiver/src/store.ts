@@ -4,7 +4,7 @@ import {
   type TimekeeperClient, type AuthSession, type KidProfile,
 } from '@timekeeper/supabase-client';
 import type {
-  Routine, TaskEvent, Device, Alert, LaptopHeartbeat, Nudge, BlockCommand,
+  Routine, Task, TaskEvent, Device, Alert, LaptopHeartbeat, Nudge, BlockCommand,
 } from '@timekeeper/schema';
 
 export const client: TimekeeperClient = createTimekeeperClient();
@@ -123,12 +123,28 @@ export async function recordEvent(ev: TaskEvent) {
 
 export async function sendNudge(n: Nudge) { await client.sendNudge(n); }
 
-export function toggleRoutineActive(routineId: string) {
-  set({
-    routines: state.routines.map(r =>
-      r.id === routineId ? { ...r, active: !r.active } : r
-    ),
-  });
+export async function toggleRoutineActive(routineId: string) {
+  const r = state.routines.find(r => r.id === routineId);
+  if (!r) return;
+  const active = !r.active;
+  set({ routines: state.routines.map(r => r.id === routineId ? { ...r, active } : r) });
+  await client.updateRoutine(routineId, { active });
+}
+
+export async function addTaskToRoutine(routineId: string, task: Task) {
+  const r = state.routines.find(r => r.id === routineId);
+  if (!r) return;
+  const tasks = [...r.tasks, task];
+  set({ routines: state.routines.map(r => r.id === routineId ? { ...r, tasks } : r) });
+  await client.updateRoutine(routineId, { tasks });
+}
+
+export async function updateTaskInRoutine(routineId: string, taskId: string, patch: Partial<Task>) {
+  const r = state.routines.find(r => r.id === routineId);
+  if (!r) return;
+  const tasks = r.tasks.map(t => t.id === taskId ? { ...t, ...patch } : t);
+  set({ routines: state.routines.map(r => r.id === routineId ? { ...r, tasks } : r) });
+  await client.updateRoutine(routineId, { tasks });
 }
 
 export async function lockLaptop(kidId: string, task?: { taskId: string; label: string; expectedMinutes: number }) {
