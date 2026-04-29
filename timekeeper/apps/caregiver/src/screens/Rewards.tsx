@@ -1,5 +1,5 @@
 import { APP, AppIcon, Btn, Card, IconBadge, SectionTitle, type IconName } from '@timekeeper/ui';
-import { useStore } from '../store.js';
+import { useStore } from '../store';
 
 const REWARDS: { id: string; label: string; cost: number; icon: IconName; color: string }[] = [
   { id: 'r1', label: 'Extra 15 min screen time', cost: 10, icon: 'play',  color: APP.info },

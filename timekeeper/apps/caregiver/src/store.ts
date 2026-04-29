@@ -7,7 +7,16 @@ import type {
   Routine, Task, TaskEvent, Device, Alert, LaptopHeartbeat, Nudge, BlockCommand,
 } from '@timekeeper/schema';
 
-export const client: TimekeeperClient = createTimekeeperClient();
+
+
+let _client: TimekeeperClient | null = null;
+
+export function getClient(): TimekeeperClient {
+  if (!_client) {
+    _client = createTimekeeperClient();
+  }
+  return _client;
+}
 
 export interface State {
   ready: boolean;
@@ -25,7 +34,7 @@ export interface State {
 
 let state: State = {
   ready: false,
-  isMock: client.isMock,
+  isMock: true,
   session: null,
   kid: MOCK_KID,
   routines: [],
@@ -37,12 +46,15 @@ let state: State = {
   activeBlock: null,
 };
 
+
 const listeners = new Set<() => void>();
 const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
-const set = (patch: Partial<State>) => {
+
+export const set = (patch: Partial<State>) => {
   state = { ...state, ...patch };
   listeners.forEach(l => l());
 };
+
 
 // Per-selector memo cache. useSyncExternalStore requires getSnapshot to
 // return a stable reference between calls when nothing relevant changed,
@@ -64,71 +76,114 @@ export function useStore<T>(selector: (s: State) => T): T {
 let bootstrapped = false;
 let unsubAuth: (() => void) | null = null;
 
+// store.ts
+
 export async function bootstrapAuth() {
+  console.log("🚀 Bootstrap starting...");
   if (bootstrapped) return;
   bootstrapped = true;
 
-  // Restore session from local storage if any
-  const session = await client.getSession().catch(() => null);
-  set({ session });
+  try {
+    const client = getClient();
+    console.log("📡 Checking session...");
+    
+    // CHANGE THIS LINE: Use client.getSession() instead of client.auth.getSession()
+    const session = await client.getSession().catch(err => {
+        console.error("Auth session fetch failed", err);
+        return null; 
+    });
 
-  // React to subsequent auth changes (sign-in / sign-out)
-  unsubAuth = client.onAuthChange((s) => {
-    set({ session: s, ready: false });
-    if (s) void loadKidData();
-    else  set({ routines: [], events: [], devices: [], alerts: [], heartbeat: null });
-  });
+    console.log("🔑 Session found:", !!session);
+    set({ session, isMock: client.isMock });
 
-  if (session) await loadKidData();
-  else set({ ready: true });   // unauth state still "ready" — show login
+    if (session) {
+      await loadKidData();
+    }
+  } catch (err) {
+    console.error("💥 Bootstrap critical error:", err);
+    set({ bootstrapError: "Failed to initialize app" });
+  } finally {
+    console.log("🏁 App is now ready");
+    set({ ready: true });
+  }
 }
 
 async function loadKidData() {
+  console.log("🛠️ Starting loadKidData...");
   try {
-    const kid = await client.resolveKid();
+    const kid = await getClient().resolveKid();
+    console.log("👦 Kid resolved:", kid);
+
     if (!kid) {
+      console.warn("⚠️ No kid found!");
       set({
-        ready: true,
-        bootstrapError: 'No kid profile found for your account. Add one via the SQL editor (see IMPLEMENTATION.md §1).',
+        ready: true, // IMPORTANT: Ensure this is true even if kid is missing
+        bootstrapError: 'No kid profile found. Please add one to the database.',
       });
       return;
     }
-    const kidId = kid.id;
-    const [routines, events, devices, alerts, heartbeat] = await Promise.all([
-      client.routines(kidId),
-      client.events(kidId, Date.now() - 24 * 60 * 60 * 1000),
-      client.devices(kidId),
-      client.alerts(kidId),
-      client.heartbeat(kidId),
-    ]);
-    set({ ready: true, kid, routines, events, devices, alerts, heartbeat, bootstrapError: null });
 
-    client.subscribeEvents(kidId, (e) => set({ events: [...state.events, e] }));
-    client.subscribeHeartbeat(kidId, (h) => set({ heartbeat: h }));
+    console.log("📡 Fetching routines, events, etc...");
+    const [routines, events, devices, alerts, heartbeat] = await Promise.all([
+      getClient().routines(kid.id),
+      getClient().events(kid.id, Date.now() - 24 * 60 * 60 * 1000),
+      getClient().devices(kid.id),
+      getClient().alerts(kid.id),
+      getClient().heartbeat(kid.id),
+    ]);
+
+    console.log("✅ Data fetch complete!");
+    set({ ready: true, kid, routines, events, devices, alerts, heartbeat, bootstrapError: null });
+    // ... rest of subs
   } catch (err) {
-    set({ ready: true, bootstrapError: err instanceof Error ? err.message : 'Failed to load data' });
+    console.error("❌ Bootstrap failed:", err);
+    set({ ready: true, bootstrapError: err instanceof Error ? err.message : 'Failed to load' });
   }
 }
 
 export async function signOut() {
-  await client.signOut();
+  await getClient().signOut();
   if (unsubAuth) { unsubAuth(); unsubAuth = null; }
   bootstrapped = false;
 }
 
 export async function recordEvent(ev: TaskEvent) {
-  await client.recordEvent(ev);
-  if (client.isMock) set({ events: [...state.events, ev] });
+  await getClient().recordEvent(ev);
+  if (getClient().isMock) set({ events: [...state.events, ev] });
 }
 
-export async function sendNudge(n: Nudge) { await client.sendNudge(n); }
+export async function sendNudge(n: Nudge) { await getClient().sendNudge(n); }
+
+export async function createRoutine(params: { id: string; name: string; startTime: string }) {
+  const newRoutine: Routine = {
+    id: params.id,
+    kidId: state.kid.id,
+    name: params.name,
+    startTime: params.startTime,
+    tasks: [],
+    daysOfWeek: [1, 2, 3, 4, 5, 6, 7],
+    active: true,
+  };
+
+  // Optimistic update
+  set({ routines: [...state.routines, newRoutine] });
+  await getClient().createRoutine(newRoutine);
+}
+
+/**
+ * Updates basic routine metadata (name, startTime, active status)
+ */
+export async function updateRoutine(id: string, patch: Partial<Routine>) {
+  set({
+    routines: state.routines.map(r => r.id === id ? { ...r, ...patch } : r)
+  });
+  await getClient().updateRoutine(id, patch);
+}
 
 export async function toggleRoutineActive(routineId: string) {
   const r = state.routines.find(r => r.id === routineId);
   if (!r) return;
-  const active = !r.active;
-  set({ routines: state.routines.map(r => r.id === routineId ? { ...r, active } : r) });
-  await client.updateRoutine(routineId, { active });
+  await updateRoutine(routineId, { active: !r.active });
 }
 
 export async function addTaskToRoutine(routineId: string, task: Task) {
@@ -136,7 +191,7 @@ export async function addTaskToRoutine(routineId: string, task: Task) {
   if (!r) return;
   const tasks = [...r.tasks, task];
   set({ routines: state.routines.map(r => r.id === routineId ? { ...r, tasks } : r) });
-  await client.updateRoutine(routineId, { tasks });
+  await getClient().updateRoutine(routineId, { tasks });
 }
 
 export async function updateTaskInRoutine(routineId: string, taskId: string, patch: Partial<Task>) {
@@ -144,7 +199,7 @@ export async function updateTaskInRoutine(routineId: string, taskId: string, pat
   if (!r) return;
   const tasks = r.tasks.map(t => t.id === taskId ? { ...t, ...patch } : t);
   set({ routines: state.routines.map(r => r.id === routineId ? { ...r, tasks } : r) });
-  await client.updateRoutine(routineId, { tasks });
+  await getClient().updateRoutine(routineId, { tasks });
 }
 
 export async function lockLaptop(kidId: string, task?: { taskId: string; label: string; expectedMinutes: number }) {
@@ -155,13 +210,13 @@ export async function lockLaptop(kidId: string, task?: { taskId: string; label: 
     expiresAt: Date.now() + 2 * 60 * 60 * 1000, // auto-release after 2 h
   };
   set({ activeBlock: cmd });
-  await client.sendBlockCommand(cmd);
+  await getClient().sendBlockCommand(cmd);
 }
 
 export async function unlockLaptop(kidId: string) {
   const cmd: BlockCommand = { kidId, action: 'unlock_screen', createdAt: Date.now() };
   set({ activeBlock: null });
-  await client.sendBlockCommand(cmd);
+  await getClient().sendBlockCommand(cmd);
 }
 
 export async function blockApp(kidId: string, appName: string, task?: { taskId: string; label: string }) {
@@ -171,7 +226,7 @@ export async function blockApp(kidId: string, appName: string, task?: { taskId: 
     createdAt: Date.now(),
   };
   set({ activeBlock: cmd });
-  await client.sendBlockCommand(cmd);
+  await getClient().sendBlockCommand(cmd);
 }
 
 export function useBootstrap() {

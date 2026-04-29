@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { APP, AppHeader, BottomTabs, GLOBAL_CSS, KidAvatar } from '@timekeeper/ui';
-import { useBootstrap, useStore, unreadAlertCount } from './store.js';
+import { useBootstrap, useStore, unreadAlertCount, getClient, set} from './store';
 import { HomeScreen } from './screens/Home.js';
 import { ScheduleScreen } from './screens/Schedule.js';
 import { InsightsScreen } from './screens/Insights.js';
@@ -36,18 +36,22 @@ export function App() {
 
   const meta = META[screen];
 
-  // Not authenticated yet (real Supabase mode only — mock auto-signs in)
-  if (ready && !session) {
-    return (
-      <div style={{
-        width: '100%', height: '100vh', display: 'flex', flexDirection: 'column',
-        background: APP.bg, color: APP.ink, fontFamily: APP.font,
-      }}>
-        <style>{GLOBAL_CSS}</style>
-        <LoginScreen onSignedIn={() => { /* auth listener triggers reload */ }}/>
-      </div>
-    );
-  }
+if (ready && !session) {
+  return (
+    <div style={{
+      width: '100%', height: '100vh', display: 'flex', flexDirection: 'column',
+      background: APP.bg, color: APP.ink, fontFamily: APP.font,
+    }}>
+      <style>{GLOBAL_CSS}</style>
+      <LoginScreen onSignedIn={ async () => {
+        const session = await getClient().getSession();
+        set({ session }); // This will now work
+        // window.location.reload(); // Optional, but helps clear the cache
+        // 
+      }}/>
+    </div>
+  );
+}
 
   return (
     <div style={{

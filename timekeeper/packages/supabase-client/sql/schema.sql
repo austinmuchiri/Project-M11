@@ -1,38 +1,62 @@
--- TimeKeeper Supabase schema
--- Apply with: supabase db push  (or paste into the SQL editor)
+-- =========================
+-- CORE ENTITIES
+-- =========================
 
 create table if not exists kids (
-  id          text primary key,
-  user_id     uuid references auth.users(id) on delete cascade,
-  name        text not null,
-  age         int,
-  initials    text,
-  avatar_color text default '#C99466',
-  created_at  timestamptz default now()
+  id            text primary key,
+  user_id       uuid references auth.users(id) on delete cascade,
+  name          text not null,
+  age           int,
+  initials      text,
+  avatar_color  text default '#C99466',
+  created_at    timestamptz default now()
 );
 
 create table if not exists routines (
-  id           text primary key,
-  kid_id       text references kids(id) on delete cascade,
-  name         text not null,
-  tasks        jsonb not null default '[]'::jsonb,
-  days_of_week int[] not null default '{}',
-  start_time   text not null,
-  active       boolean not null default true,
-  created_at   timestamptz default now()
+  id            text primary key,
+  kid_id        text references kids(id) on delete cascade,
+  name          text not null,
+  days_of_week  int[] not null default '{}',
+  start_time    text not null,
+  active        boolean not null default true,
+  created_at    timestamptz default now()
 );
+
+--  NEW: TASKS TABLE
+create table if not exists tasks (
+  id                text primary key,
+  routine_id        text references routines(id) on delete cascade,
+  kid_id            text references kids(id) on delete cascade,
+  label             text not null,
+  icon              text,
+  scheduled_time    text not null,
+  expected_minutes  int,
+  reward_stars      int default 1,
+  position          int default 0, -- ordering within routine
+  created_at        timestamptz default now()
+);
+
+-- =========================
+-- EVENTS & ANALYTICS
+-- =========================
 
 create table if not exists task_events (
   id          uuid primary key default gen_random_uuid(),
   kid_id      text references kids(id) on delete cascade,
-  routine_id  text not null,
-  task_id     text not null,
+  routine_id  text references routines(id) on delete cascade,
+  task_id     text references tasks(id) on delete cascade,
   status      text not null check (status in ('started','done','missed','skipped','retry','paused')),
   source      text not null check (source in ('watch','phone','laptop','system')),
   ts          bigint not null,
   duration_ms bigint
 );
-create index if not exists task_events_kid_ts_idx on task_events (kid_id, ts desc);
+
+create index if not exists task_events_kid_ts_idx 
+on task_events (kid_id, ts desc);
+
+-- =========================
+-- DEVICES
+-- =========================
 
 create table if not exists devices (
   id          text primary key,
@@ -45,6 +69,10 @@ create table if not exists devices (
   paired      boolean not null default false
 );
 
+-- =========================
+-- ALERTS & NUDGES
+-- =========================
+
 create table if not exists alerts (
   id      text primary key,
   kid_id  text references kids(id) on delete cascade,
@@ -54,6 +82,19 @@ create table if not exists alerts (
   ts      bigint not null,
   read    boolean not null default false
 );
+
+create table if not exists nudges (
+  id            uuid primary key default gen_random_uuid(),
+  kid_id        text references kids(id) on delete cascade,
+  message       text not null,
+  tone          text not null check (tone in ('praise','start','break','reminder','custom')),
+  sent_at       bigint not null,
+  acknowledged  boolean not null default false
+);
+
+-- =========================
+-- LAPTOP TELEMETRY
+-- =========================
 
 create table if not exists laptop_heartbeat (
   id            uuid primary key default gen_random_uuid(),
@@ -65,57 +106,14 @@ create table if not exists laptop_heartbeat (
   locked        boolean not null default false,
   audio_active  boolean not null default false
 );
-create index if not exists heartbeat_kid_ts_idx on laptop_heartbeat (kid_id, ts desc);
 
-create table if not exists nudges (
-  id            uuid primary key default gen_random_uuid(),
-  kid_id        text references kids(id) on delete cascade,
-  message       text not null,
-  tone          text not null check (tone in ('praise','start','break','reminder','custom')),
-  sent_at       bigint not null,
-  acknowledged  boolean not null default false
-);
+create index if not exists heartbeat_kid_ts_idx 
+on laptop_heartbeat (kid_id, ts desc);
 
--- Realtime publications
-alter publication supabase_realtime add table task_events;
-alter publication supabase_realtime add table laptop_heartbeat;
-alter publication supabase_realtime add table nudges;
-alter publication supabase_realtime add table alerts;
+-- =========================
+-- BLOCK COMMANDS
+-- =========================
 
--- Row-level security: caregiver owns the kid
-alter table kids               enable row level security;
-alter table routines           enable row level security;
-alter table task_events        enable row level security;
-alter table devices            enable row level security;
-alter table alerts             enable row level security;
-alter table laptop_heartbeat   enable row level security;
-alter table nudges             enable row level security;
-
-create policy "kids: owner reads"      on kids
-  for select using (user_id = auth.uid());
-create policy "kids: owner writes"     on kids
-  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
-
--- Helper: kid belongs to current user
-create or replace function tk_owns_kid(kid text) returns boolean
-  language sql stable as $$
-    select exists (select 1 from kids where id = kid and user_id = auth.uid())
-$$;
-
-create policy "routines: owner"        on routines
-  for all using (tk_owns_kid(kid_id))   with check (tk_owns_kid(kid_id));
-create policy "task_events: owner"     on task_events
-  for all using (tk_owns_kid(kid_id))   with check (tk_owns_kid(kid_id));
-create policy "devices: owner"         on devices
-  for all using (tk_owns_kid(kid_id))   with check (tk_owns_kid(kid_id));
-create policy "alerts: owner"          on alerts
-  for all using (tk_owns_kid(kid_id))   with check (tk_owns_kid(kid_id));
-create policy "heartbeat: owner"       on laptop_heartbeat
-  for all using (tk_owns_kid(kid_id))   with check (tk_owns_kid(kid_id));
-create policy "nudges: owner"          on nudges
-  for all using (tk_owns_kid(kid_id))   with check (tk_owns_kid(kid_id));
-
--- Block commands — caregiver writes, laptop reads via realtime
 create table if not exists block_commands (
   id          uuid primary key default gen_random_uuid(),
   kid_id      text references kids(id) on delete cascade,
@@ -125,8 +123,65 @@ create table if not exists block_commands (
   expires_at  bigint,
   created_at  bigint not null
 );
-create index if not exists block_commands_kid_ts_idx on block_commands (kid_id, created_at desc);
-alter table block_commands enable row level security;
-create policy "block_commands: owner" on block_commands
-  for all using (tk_owns_kid(kid_id)) with check (tk_owns_kid(kid_id));
+
+create index if not exists block_commands_kid_ts_idx 
+on block_commands (kid_id, created_at desc);
+
+-- =========================
+-- REALTIME
+-- =========================
+
+alter publication supabase_realtime add table task_events;
+alter publication supabase_realtime add table laptop_heartbeat;
+alter publication supabase_realtime add table nudges;
+alter publication supabase_realtime add table alerts;
 alter publication supabase_realtime add table block_commands;
+alter publication supabase_realtime add table tasks;
+
+-- =========================
+-- ROW LEVEL SECURITY
+-- =========================
+
+alter table kids enable row level security;
+alter table routines enable row level security;
+alter table tasks enable row level security;
+alter table task_events enable row level security;
+alter table devices enable row level security;
+alter table alerts enable row level security;
+alter table laptop_heartbeat enable row level security;
+alter table nudges enable row level security;
+alter table block_commands enable row level security;
+
+-- ownership helper
+create or replace function tk_owns_kid(kid text) returns boolean
+language sql stable as $$
+  select exists (select 1 from kids where id = kid and user_id = auth.uid())
+$$;
+
+-- policies
+create policy "kids: owner" on kids
+for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+create policy "routines: owner" on routines
+for all using (tk_owns_kid(kid_id)) with check (tk_owns_kid(kid_id));
+
+create policy "tasks: owner" on tasks
+for all using (tk_owns_kid(kid_id)) with check (tk_owns_kid(kid_id));
+
+create policy "task_events: owner" on task_events
+for all using (tk_owns_kid(kid_id)) with check (tk_owns_kid(kid_id));
+
+create policy "devices: owner" on devices
+for all using (tk_owns_kid(kid_id)) with check (tk_owns_kid(kid_id));
+
+create policy "alerts: owner" on alerts
+for all using (tk_owns_kid(kid_id)) with check (tk_owns_kid(kid_id));
+
+create policy "heartbeat: owner" on laptop_heartbeat
+for all using (tk_owns_kid(kid_id)) with check (tk_owns_kid(kid_id));
+
+create policy "nudges: owner" on nudges
+for all using (tk_owns_kid(kid_id)) with check (tk_owns_kid(kid_id));
+
+create policy "block_commands: owner" on block_commands
+for all using (tk_owns_kid(kid_id)) with check (tk_owns_kid(kid_id));

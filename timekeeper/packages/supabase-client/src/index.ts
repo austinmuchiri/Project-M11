@@ -50,6 +50,7 @@ export interface TimekeeperClient {
   alerts(kidId: string): Promise<Alert[]>;
   heartbeat(kidId: string): Promise<LaptopHeartbeat | null>;
 
+  createRoutine(routine: Routine): Promise<void>;
   updateRoutine(routineId: string, patch: { active?: boolean; tasks?: Routine['tasks'] }): Promise<void>;
   recordEvent(ev: TaskEvent): Promise<void>;
   sendNudge(n: Nudge): Promise<void>;
@@ -162,6 +163,20 @@ class SupabaseImpl implements TimekeeperClient {
       .eq('kid_id', kidId).order('ts', { ascending: false }).limit(1).maybeSingle();
     if (error) throw error;
     return data ? rowToHeartbeat(data) : null;
+  }
+
+  async createRoutine(r: Routine) {
+    const { error } = await this.sb.from('routines').insert({
+      id: r.id,
+      kid_id: r.kidId,
+      name: r.name,
+      tasks: r.tasks,
+      days_of_week: r.daysOfWeek,
+      start_time: r.startTime,
+      active: r.active,
+    });
+
+    if (error) throw error;
   }
 
   async updateRoutine(routineId: string, patch: { active?: boolean; tasks?: Routine['tasks'] }): Promise<void> {
@@ -305,6 +320,10 @@ class MockImpl implements TimekeeperClient {
   async alerts(kidId: string) { return this.alertsStore.filter(a => a.kidId === kidId); }
   async heartbeat(_kidId: string) { return this.heartbeatStore; }
 
+  async createRoutine(r: Routine) {
+    this.routinesStore.push(r);
+  }
+
   async updateRoutine(routineId: string, patch: { active?: boolean; tasks?: Routine['tasks'] }) {
     this.routinesStore = this.routinesStore.map(r =>
       r.id === routineId ? { ...r, ...patch } : r
@@ -363,6 +382,7 @@ export function createTimekeeperClient(cfg: ClientConfig = {}): TimekeeperClient
   const url = cfg.url ?? readEnv('VITE_SUPABASE_URL') ?? readEnv('SUPABASE_URL');
   const key = cfg.anonKey ?? readEnv('VITE_SUPABASE_ANON_KEY') ?? readEnv('SUPABASE_ANON_KEY');
   const demo = readEnv('TIMEKEEPER_DEMO') === 'true' || readEnv('VITE_TIMEKEEPER_DEMO') === 'true';
+
 
   if (cfg.forceMock || demo || !url || !key || url.includes('your-project-ref')) {
     return new MockImpl();

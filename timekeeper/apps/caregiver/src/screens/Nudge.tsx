@@ -4,7 +4,7 @@ import {
   TASK_ICON, type IconName,
 } from '@timekeeper/ui';
 import type { NudgeTone } from '@timekeeper/schema';
-import { sendNudge, useStore, activeTask } from '../store.js';
+import { sendNudge, useStore, activeTask } from '../store';
 
 const QUICK: { id: string; icon: IconName; label: string; tone: NudgeTone }[] = [
   { id: 'q1', icon: 'check', label: 'Great job!',         tone: 'praise' },

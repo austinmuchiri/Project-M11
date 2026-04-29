@@ -3,7 +3,7 @@ import {
   APP, AppIcon, Card, IconBadge, MiniWatchFace, Pill, RingGauge,
   StatusDot, TASK_ICON, type IconName,
 } from '@timekeeper/ui';
-import { useStore, resolveTodayTasks, activeTask, lockLaptop, unlockLaptop, blockApp } from '../store.js';
+import { useStore, resolveTodayTasks, activeTask, lockLaptop, unlockLaptop, blockApp } from '../store';
 
 export function HomeScreen({ onNudge, onSchedule }: {
   onNudge: () => void;

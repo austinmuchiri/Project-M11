@@ -3,7 +3,7 @@ import {
   APP, AppIcon, Btn, Card, IconBadge, SectionTitle, StatusDot, Toggle,
   type IconName,
 } from '@timekeeper/ui';
-import { useStore } from '../store.js';
+import { useStore } from '../store';
 import type { DeviceKind } from '@timekeeper/schema';
 
 const KIND_META: Record<DeviceKind, { icon: IconName; color: string }> = {

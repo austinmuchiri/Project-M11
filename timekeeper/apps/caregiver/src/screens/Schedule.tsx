@@ -7,7 +7,7 @@ import {
 import type { Task, TaskIcon } from '@timekeeper/schema';
 import {
   useStore, resolveTodayTasks, toggleRoutineActive,
-  addTaskToRoutine, updateTaskInRoutine,
+  addTaskToRoutine, updateTaskInRoutine, createRoutine
 } from '../store.js';
 
 const TASK_ICONS: TaskIcon[] = [
@@ -99,10 +99,35 @@ export function ScheduleScreen({ selectedId, onSelect }: {
 
   const modalOpen = editingTaskId !== null;
 
+  // Inside ScheduleScreen function
+  const [isRoutineModalOpen, setIsRoutineModalOpen] = useState(false);
+  const [newRoutineName, setNewRoutineName] = useState('');
+
+  const openCreateRoutine = () => {
+    setNewRoutineName('');
+    setIsRoutineModalOpen(true);
+  };
+
+  const handleCreateRoutine = async () => {
+    if (!newRoutineName.trim()) return;
+    
+    const routineId = `routine-${Date.now()}`;
+    await createRoutine({
+      id: routineId,
+      name: newRoutineName.trim(),
+      startTime: '08:00', // Default start time
+    });
+    
+    setIsRoutineModalOpen(false);
+    onSelect(routineId); // Select the new routine so the user can see it
+  };
+
   return (
     <>
       <div style={{ padding: '0 16px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <SectionTitle action="+ New">Preset routines</SectionTitle>
+        <SectionTitle action={<span onClick={openCreateRoutine} style={{ cursor: 'pointer' }}>+ New</span>}>
+          Preset routines
+        </SectionTitle>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           {routines.map(r => {
             const preset = PRESETS.find(p => p.id === r.id) ?? { icon: 'dot' as IconName, color: APP.brand };
@@ -206,7 +231,17 @@ export function ScheduleScreen({ selectedId, onSelect }: {
         </div>
       </div>
 
-      {/* Task modal — bottom sheet */}
+      {/* Routine modal — bottom sheet */}
+      {isRoutineModalOpen && (
+        <RoutineModal
+          name={newRoutineName}
+          setName={setNewRoutineName}
+          onCancel={() => setIsRoutineModalOpen(false)}
+          onSave={handleCreateRoutine}
+        />
+      )}
+
+      {/* Task Modal */}
       {modalOpen && (
         <TaskModal
           draft={draft}
@@ -217,6 +252,57 @@ export function ScheduleScreen({ selectedId, onSelect }: {
         />
       )}
     </>
+  );
+}
+function RoutineModal({ 
+  name, 
+  setName, 
+  onSave, 
+  onCancel 
+}: { 
+  name: string; 
+  setName: (s: string) => void; 
+  onSave: () => void; 
+  onCancel: () => void; 
+}) {
+  const valid = name.trim().length > 0;
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 110, // Higher than task modal
+      background: 'rgba(31,46,39,0.45)', backdropFilter: 'blur(4px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+    }}>
+      <div style={{
+        width: '100%', maxWidth: 400, background: APP.surface,
+        borderRadius: APP.rXl, padding: '24px 20px', boxShadow: APP.shadowLg,
+      }}>
+        <div style={{ fontFamily: APP.fontDisp, fontWeight: 800, fontSize: 20, color: APP.ink, marginBottom: 20 }}>
+          Create Routine
+        </div>
+
+        <FieldLabel>Routine Name</FieldLabel>
+        <input
+          autoFocus
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="e.g. Morning Routine"
+          style={{
+            width: '100%', height: 48, borderRadius: 10, padding: '0 12px',
+            border: `1.5px solid ${APP.borderStrong}`, fontFamily: APP.font,
+            fontSize: 15, fontWeight: 600, color: APP.ink, background: APP.surface,
+            boxSizing: 'border-box', outline: 'none', marginBottom: 24
+          }}
+        />
+
+        <div style={{ display: 'flex', gap: 10 }}>
+          <Btn variant="secondary" full onClick={onCancel}>Cancel</Btn>
+          <Btn variant="primary" full onClick={onSave} style={{ opacity: valid ? 1 : 0.45 }}>
+            Create & Add Tasks
+          </Btn>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -357,4 +443,3 @@ const stepperBtn: React.CSSProperties = {
   fontSize: 20, fontWeight: 700, color: APP.ink,
   display: 'flex', alignItems: 'center', justifyContent: 'center',
 };
-

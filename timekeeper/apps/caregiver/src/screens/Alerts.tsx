@@ -2,7 +2,7 @@ import {
   APP, AppIcon, Btn, Card, IconBadge, SectionTitle, type IconName,
 } from '@timekeeper/ui';
 import type { AlertKind, Alert } from '@timekeeper/schema';
-import { useStore } from '../store.js';
+import { useStore } from '../store';
 
 const META: Record<AlertKind, { color: string; bg: string; icon: IconName }> = {
   'miss-streak': { color: APP.warn,  bg: APP.warnSoft,  icon: 'bell' },

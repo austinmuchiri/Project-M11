@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { APP, AppIcon, Btn } from '@timekeeper/ui';
-import { client } from '../store.js';
+import { getClient } from '../store';
 
 export function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
   const [mode, setMode] = useState<'in' | 'up'>('in');
@@ -13,8 +13,8 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
     e.preventDefault();
     setBusy(true); setError(null);
     try {
-      if (mode === 'in') await client.signIn(email, password);
-      else await client.signUp(email, password);
+      if (mode === 'in') await getClient().signIn(email, password);
+      else await getClient().signUp(email, password);
       onSignedIn();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign in failed');
