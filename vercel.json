@@ -1,0 +1,12 @@
+{
+  "buildCommand": "cd timekeeper && pnpm install --frozen-lockfile && pnpm --filter @timekeeper/caregiver build",
+  "outputDirectory": "timekeeper/apps/caregiver/dist",
+  "installCommand": "echo skip",
+  "rewrites": [{ "source": "/(.*)", "destination": "/" }],
+  "headers": [
+    {
+      "source": "/assets/(.*)",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+    }
+  ]
+}

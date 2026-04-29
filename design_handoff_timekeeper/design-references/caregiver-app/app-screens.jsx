@@ -126,6 +126,9 @@ function HomeScreen({ state, dispatch }) {
         </div>
       </div>
 
+      {/* Focus controls */}
+      <FocusControlsCard/>
+
       {/* Today summary */}
       <Card padding={14}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -699,6 +702,46 @@ function SettingsScreen({ state, dispatch }) {
         ))}
       </Card>
 
+      {/* Focus & Blocking section */}
+      <SectionTitle action={<button onClick={() => dispatch({ type: 'go', screen: 'focusblock' })} style={{
+        fontSize: 11, fontWeight: 700, color: APP.brand, background: 'none', border: 'none', cursor: 'pointer', fontFamily: APP.font,
+      }}>Open →</button>}>Focus &amp; Blocking</SectionTitle>
+      <Card padding={0}>
+        {[
+          { k: 'lt', label: 'Lock during active task', detail: 'Laptop locks when a task starts', val: true },
+          { k: 'bg', label: 'Block games during routines', detail: 'Roblox, YouTube, Browser', val: false },
+        ].map((row, i, arr) => {
+          const [on, setOn] = React.useState(row.val);
+          return (
+            <div key={row.k} style={{
+              display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
+              borderBottom: i === arr.length - 1 ? 'none' : `1px solid ${APP.border}`,
+            }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: APP.ink }}>{row.label}</div>
+                <div style={{ fontSize: 11, color: APP.inkDim, marginTop: 1 }}>{row.detail}</div>
+              </div>
+              <Toggle on={on} onChange={setOn}/>
+            </div>
+          );
+        })}
+        <div style={{ padding: '10px 14px', borderTop: `1px solid ${APP.border}`, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {['Roblox', 'YouTube', 'Browser'].map(app => (
+            <div key={app} style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px',
+              background: APP.accentSoft, borderRadius: 8, fontSize: 12, fontWeight: 700, color: APP.accent,
+            }}>
+              {app}
+              <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: APP.accent, padding: 0, fontSize: 14, lineHeight: 1 }}>×</button>
+            </div>
+          ))}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px',
+            border: `1px dashed ${APP.border}`, borderRadius: 8, fontSize: 12, fontWeight: 700, color: APP.inkDim, cursor: 'pointer',
+          }}>+ Add app</div>
+        </div>
+      </Card>
+
       {/* Rewards entry */}
       <SectionTitle>More</SectionTitle>
       <Card padding={0}>
@@ -730,7 +773,353 @@ function SettingsScreen({ state, dispatch }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────
+// FOCUS CONTROLS CARD — inline in HomeScreen
+// Shows lock/block buttons + live block status
+// ─────────────────────────────────────────────────────────
+const BLOCKABLE_APPS = [
+  { name: 'Roblox',  icon: 'play' },
+  { name: 'YouTube', icon: 'play' },
+  { name: 'Browser', icon: 'dot'  },
+];
+
+function FocusControlsCard() {
+  const [blockState, setBlockState] = React.useState(null); // null | { kind, label }
+  const [showPicker, setShowPicker] = React.useState(false);
+  const [toast, setToast] = React.useState(null);
+
+  const showToast = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  const onLock = () => {
+    setBlockState({ kind: 'lock_screen', label: 'Brush Teeth' });
+    setShowPicker(false);
+    showToast('Laptop locked · Supabase ↗ sent in 84ms');
+  };
+
+  const onBlock = (appName) => () => {
+    setBlockState({ kind: 'block_app', label: appName });
+    setShowPicker(false);
+    showToast(`${appName} blocked · Electron received`);
+  };
+
+  const onUnlock = () => {
+    setBlockState(null);
+    showToast('Lock cleared');
+  };
+
+  const isLocked   = blockState?.kind === 'lock_screen';
+  const blockedApp = blockState?.kind === 'block_app' ? blockState.label : null;
+
+  return (
+    <Card padding={14}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <IconBadge name="laptop" color={blockState ? APP.accent : APP.brand} size={28} iconSize={14}/>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: APP.ink }}>Focus controls</div>
+            <div style={{ fontSize: 11, color: APP.inkDim, marginTop: 1 }}>
+              {isLocked ? 'Screen locked' : blockedApp ? `${blockedApp} blocked` : 'Laptop open'}
+            </div>
+          </div>
+        </div>
+        {blockState && (
+          <div style={{
+            fontSize: 10, fontWeight: 800, letterSpacing: 1.2, textTransform: 'uppercase',
+            color: APP.accent, background: APP.accentSoft, borderRadius: 6, padding: '3px 8px',
+          }}>Active</div>
+        )}
+      </div>
+
+      {toast && (
+        <div style={{
+          padding: '8px 12px', borderRadius: 8, background: APP.brandSoft,
+          color: APP.brandInk, fontWeight: 700, fontSize: 12, marginBottom: 10,
+          display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          <AppIcon name="send" size={12} color={APP.brandInk}/>
+          {toast}
+        </div>
+      )}
+
+      {showPicker && !blockState && (
+        <div style={{ marginBottom: 10 }}>
+          <div style={{
+            fontSize: 10, fontWeight: 800, letterSpacing: 1.2, textTransform: 'uppercase',
+            color: APP.inkDim, marginBottom: 8,
+          }}>Block which app?</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+            {BLOCKABLE_APPS.map(a => (
+              <button key={a.name} onClick={onBlock(a.name)} style={{
+                padding: '10px 6px', borderRadius: 10,
+                border: `1.5px solid ${APP.border}`, background: APP.surfaceAlt,
+                cursor: 'pointer', fontFamily: APP.font,
+                fontSize: 12, fontWeight: 700, color: APP.ink,
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+              }}>
+                <IconBadge name={a.icon} color={APP.accent} size={28} iconSize={14}/>
+                {a.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!blockState ? (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onLock} aria-label="Lock laptop screen now" style={{
+            flex: 1, height: 40, borderRadius: 10, border: 'none',
+            background: APP.brand, color: '#fff', fontFamily: APP.font,
+            fontWeight: 800, fontSize: 13, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          }}>
+            🔒 Lock laptop
+          </button>
+          <button onClick={() => setShowPicker(p => !p)} aria-label="Block a specific app" style={{
+            flex: 1, height: 40, borderRadius: 10,
+            border: `1.5px solid ${APP.accent}`,
+            background: showPicker ? APP.accentSoft : 'transparent',
+            color: APP.accent, fontFamily: APP.font,
+            fontWeight: 800, fontSize: 13, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          }}>
+            🚫 Block apps
+          </button>
+        </div>
+      ) : (
+        <button onClick={onUnlock} aria-label="Override: unlock laptop now" style={{
+          width: '100%', height: 40, borderRadius: 10,
+          border: `1.5px solid ${APP.brand}`,
+          background: 'transparent', color: APP.brand,
+          fontFamily: APP.font, fontWeight: 800, fontSize: 13, cursor: 'pointer',
+        }}>
+          Override · Unlock now
+        </button>
+      )}
+    </Card>
+  );
+}
+
+// ─────────────────────────────────────────────────────────
+// FOCUS & BLOCKING — dedicated screen showing the
+// caregiver-triggers-lock flow end-to-end
+// ─────────────────────────────────────────────────────────
+function FocusBlockingScreen({ state, dispatch }) {
+  const [lockActive, setLockActive] = React.useState(false);
+  const [blockedApp, setBlockedApp] = React.useState(null);
+  const [showPicker, setShowPicker] = React.useState(false);
+  const [toast, setToast] = React.useState(null);
+  const [autoRules, setAutoRules] = React.useState({ lockTask: true, blockGames: false });
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+
+  const onLock = () => {
+    setLockActive(true); setBlockedApp(null); setShowPicker(false);
+    showToast('Block command inserted → Supabase realtime → Electron tray (84ms)');
+  };
+  const onBlock = (app) => { setBlockedApp(app); setLockActive(false); setShowPicker(false); showToast(`${app} blocked via Supabase realtime`); };
+  const onUnlock = () => { setLockActive(false); setBlockedApp(null); showToast('Unlock sent · laptop overlay cleared'); };
+
+  const activeAny = lockActive || !!blockedApp;
+
+  return (
+    <div style={{ padding: '0 16px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+      {/* Hero */}
+      <div style={{
+        background: '#1F2E27', borderRadius: APP.rXl, padding: 18,
+        color: '#F4EFE6', position: 'relative', overflow: 'hidden',
+      }}>
+        <div style={{
+          position: 'absolute', right: -40, top: -40, width: 180, height: 180,
+          borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(168,199,184,0.15), transparent 60%)',
+        }}/>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.4, color: '#A8C7B8', marginBottom: 8 }}>
+          Focus &amp; Blocking
+        </div>
+        <div style={{ fontFamily: APP.fontDisp, fontSize: 22, fontWeight: 800, letterSpacing: -0.4 }}>
+          Caregiver controls laptop
+        </div>
+        <div style={{ fontSize: 12, color: 'rgba(244,239,230,0.7)', marginTop: 4, lineHeight: 1.5 }}>
+          Lock the screen or block apps in real time via Supabase. Kid sees a focus overlay — no surprise. Override anytime.
+        </div>
+
+        {/* Architecture trace */}
+        <div style={{
+          marginTop: 14, padding: '10px 12px', borderRadius: 10,
+          background: 'rgba(255,255,255,0.05)',
+          fontSize: 11, fontFamily: APP.fontMono, color: 'rgba(244,239,230,0.65)',
+          lineHeight: 1.8,
+        }}>
+          Caregiver taps → <span style={{ color: '#A8C7B8' }}>block_commands INSERT</span> → Supabase realtime → <span style={{ color: '#A8C7B8' }}>Electron subscribes</span> → overlay shown
+        </div>
+      </div>
+
+      {toast && (
+        <div style={{
+          padding: '10px 14px', borderRadius: 10, background: APP.brandSoft,
+          color: APP.brandInk, fontWeight: 700, fontSize: 12,
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <StatusDot color={APP.brand} pulse/>
+          {toast}
+        </div>
+      )}
+
+      {/* Lock / Block controls */}
+      <SectionTitle>Send command now</SectionTitle>
+      <Card padding={14}>
+        {showPicker && !activeAny && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.2, textTransform: 'uppercase', color: APP.inkDim, marginBottom: 8 }}>
+              Block which app?
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+              {BLOCKABLE_APPS.map(a => (
+                <button key={a.name} onClick={() => onBlock(a.name)} style={{
+                  padding: '10px 6px', borderRadius: 10, border: `1.5px solid ${APP.border}`,
+                  background: APP.surfaceAlt, cursor: 'pointer', fontFamily: APP.font,
+                  fontSize: 12, fontWeight: 700, color: APP.ink,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                }}>
+                  <IconBadge name={a.icon} color={APP.accent} size={28} iconSize={14}/>
+                  {a.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!activeAny ? (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={onLock} style={{
+              flex: 1, height: 44, borderRadius: 10, border: 'none',
+              background: APP.brand, color: '#fff', fontFamily: APP.font,
+              fontWeight: 800, fontSize: 13, cursor: 'pointer',
+            }}>🔒 Lock laptop now</button>
+            <button onClick={() => setShowPicker(p => !p)} style={{
+              flex: 1, height: 44, borderRadius: 10,
+              border: `1.5px solid ${APP.accent}`,
+              background: showPicker ? APP.accentSoft : 'transparent',
+              color: APP.accent, fontFamily: APP.font,
+              fontWeight: 800, fontSize: 13, cursor: 'pointer',
+            }}>🚫 Block apps</button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{
+              padding: '10px 14px', borderRadius: 10,
+              background: lockActive ? APP.brandSoft : APP.accentSoft,
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <div style={{ fontSize: 20 }}>{lockActive ? '🔒' : '🚫'}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: APP.ink }}>
+                  {lockActive ? 'Screen locked · Brush Teeth' : `${blockedApp} blocked`}
+                </div>
+                <div style={{ fontSize: 11, color: APP.inkDim, marginTop: 1 }}>
+                  Laptop received command · overlay active
+                </div>
+              </div>
+              <div style={{
+                fontSize: 10, fontWeight: 800, textTransform: 'uppercase',
+                letterSpacing: 1.1, color: lockActive ? APP.brandInk : APP.accent,
+                background: 'rgba(255,255,255,0.5)', borderRadius: 6, padding: '3px 8px',
+              }}>Active</div>
+            </div>
+            <button onClick={onUnlock} style={{
+              height: 40, borderRadius: 10, border: `1.5px solid ${APP.brand}`,
+              background: 'transparent', color: APP.brand,
+              fontFamily: APP.font, fontWeight: 800, fontSize: 13, cursor: 'pointer',
+            }}>Override · Unlock now</button>
+          </div>
+        )}
+      </Card>
+
+      {/* What the kid sees */}
+      <SectionTitle>What the kid sees</SectionTitle>
+      <Card padding={14} style={{ background: activeAny ? APP.brandSoft : APP.surfaceAlt }}>
+        {activeAny ? (
+          <div style={{ textAlign: 'center', padding: '8px 0' }}>
+            <div style={{
+              width: 56, height: 56, borderRadius: 16,
+              background: APP.brand, margin: '0 auto 12px',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 24,
+            }}>🔒</div>
+            <div style={{ fontFamily: APP.fontDisp, fontSize: 16, fontWeight: 800, color: APP.ink }}>
+              {lockActive ? 'Focus lock · Brush Teeth' : `${blockedApp} is paused`}
+            </div>
+            <div style={{ fontSize: 12, color: APP.ink2, marginTop: 4 }}>
+              {lockActive
+                ? '"Tap DONE on your watch to unlock"'
+                : '"Time to focus — check your watch"'}
+            </div>
+            <div style={{ marginTop: 10, fontSize: 10, fontFamily: APP.fontMono, color: APP.inkDim }}>
+              ← Laptop overlay (Electron) · caregiver can override
+            </div>
+          </div>
+        ) : (
+          <div style={{ textAlign: 'center', padding: '8px 0', color: APP.inkDim }}>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>Laptop is open</div>
+            <div style={{ fontSize: 11, marginTop: 4 }}>No active block command</div>
+          </div>
+        )}
+      </Card>
+
+      {/* Auto-blocking rules */}
+      <SectionTitle>Auto-blocking rules</SectionTitle>
+      <Card padding={0}>
+        {[
+          { k: 'lockTask',  label: 'Lock during active task',    detail: 'Auto-lock when a routine task starts', val: autoRules.lockTask },
+          { k: 'blockGames', label: 'Block games during routines', detail: 'Roblox, YouTube blocked in routine windows', val: autoRules.blockGames },
+        ].map((row, i, arr) => (
+          <div key={row.k} style={{
+            display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
+            borderBottom: i === arr.length - 1 ? 'none' : `1px solid ${APP.border}`,
+          }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: APP.ink }}>{row.label}</div>
+              <div style={{ fontSize: 11, color: APP.inkDim, marginTop: 1 }}>{row.detail}</div>
+            </div>
+            <Toggle on={row.val} onChange={() => setAutoRules(r => ({ ...r, [row.k]: !r[row.k] }))}/>
+          </div>
+        ))}
+      </Card>
+
+      {/* Audit trail */}
+      <SectionTitle>Recent commands</SectionTitle>
+      <Card padding={0}>
+        {[
+          { time: '07:41', action: '🔒 Lock screen', detail: 'Brush Teeth · 3 min', color: APP.brand },
+          { time: '07:44', action: '✅ Unlock (kid done)', detail: 'DONE tapped on watch', color: APP.brand },
+          { time: '07:55', action: '🚫 Roblox blocked', detail: 'School routine window', color: APP.accent },
+          { time: '07:57', action: '🔓 Override unlock', detail: 'By caregiver', color: APP.ink2 },
+        ].map((row, i, arr) => (
+          <div key={i} style={{
+            display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+            borderBottom: i === arr.length - 1 ? 'none' : `1px solid ${APP.border}`,
+          }}>
+            <div style={{ fontFamily: APP.fontMono, fontSize: 10, color: APP.inkDim, width: 36 }}>{row.time}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: APP.ink }}>{row.action}</div>
+              <div style={{ fontSize: 10, color: APP.inkDim, marginTop: 1 }}>{row.detail}</div>
+            </div>
+            <div style={{
+              width: 6, height: 6, borderRadius: '50%', background: row.color, flexShrink: 0,
+            }}/>
+          </div>
+        ))}
+      </Card>
+
+    </div>
+  );
+}
+
 Object.assign(window, {
   HomeScreen, ScheduleScreen, AnalyticsScreen, NotificationsScreen,
-  NudgeScreen, RewardsScreen, SettingsScreen, PRESET_ROUTINES,
+  NudgeScreen, RewardsScreen, SettingsScreen, FocusBlockingScreen, PRESET_ROUTINES,
 });

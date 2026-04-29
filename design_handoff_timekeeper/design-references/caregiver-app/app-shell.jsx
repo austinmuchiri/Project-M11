@@ -3,19 +3,20 @@
 // the same screen on both platforms simultaneously.
 
 const SCREEN_META = {
-  home:      { title: 'Today',         subtitle: 'Munene · 8 yrs', tab: 'home' },
-  schedule:  { title: 'Schedule',      subtitle: 'Today · Sun, Apr 25', tab: 'schedule' },
-  analytics: { title: 'Insights',      subtitle: 'Compliance & trends', tab: 'analytics' },
-  notes:     { title: 'Alerts',        subtitle: '2 new · gentle escalation', tab: 'notes' },
-  settings:  { title: 'Settings',      subtitle: 'Devices & rules', tab: 'settings' },
-  nudge:     { title: 'Send a nudge',  subtitle: 'Lands on watch + laptop', tab: 'home', back: 'home' },
-  rewards:   { title: 'Rewards',       subtitle: 'Stars & redeemables', tab: 'settings', back: 'settings' },
+  home:         { title: 'Today',             subtitle: 'Munene · 8 yrs', tab: 'home' },
+  schedule:     { title: 'Schedule',          subtitle: 'Today · Sun, Apr 25', tab: 'schedule' },
+  analytics:    { title: 'Insights',          subtitle: 'Compliance & trends', tab: 'analytics' },
+  notes:        { title: 'Alerts',            subtitle: '2 new · gentle escalation', tab: 'notes' },
+  settings:     { title: 'Settings',          subtitle: 'Devices & rules', tab: 'settings' },
+  nudge:        { title: 'Send a nudge',      subtitle: 'Lands on watch + laptop', tab: 'home', back: 'home' },
+  rewards:      { title: 'Rewards',           subtitle: 'Stars & redeemables', tab: 'settings', back: 'settings' },
+  focusblock:   { title: 'Focus & Blocking',  subtitle: 'Caregiver controls laptop', tab: 'home', back: 'home' },
 };
 
 const SCREENS = {
   home: HomeScreen, schedule: ScheduleScreen, analytics: AnalyticsScreen,
   notes: NotificationsScreen, settings: SettingsScreen, nudge: NudgeScreen,
-  rewards: RewardsScreen,
+  rewards: RewardsScreen, focusblock: FocusBlockingScreen,
 };
 
 function useAppState() {
@@ -112,14 +113,19 @@ function Stage() {
         }}>
           {Object.entries(SCREEN_META).map(([id, m]) => {
             const on = id === state.screen;
+            const isNew = id === 'focusblock';
             return (
               <button key={id} onClick={() => dispatch({ type: 'go', screen: id })} style={{
-                padding: '8px 12px', borderRadius: 9, border: 'none',
+                padding: '8px 12px', borderRadius: 9, border: isNew && !on ? '1px solid rgba(168,199,184,0.4)' : 'none',
                 background: on ? '#A8C7B8' : 'transparent',
-                color: on ? '#1F2E27' : 'rgba(244,239,230,0.78)',
+                color: on ? '#1F2E27' : isNew ? '#A8C7B8' : 'rgba(244,239,230,0.78)',
                 fontFamily: APP.font, fontSize: 12, fontWeight: 700,
                 cursor: 'pointer', textTransform: 'capitalize',
-              }}>{m.title.toLowerCase()}</button>
+                display: 'flex', alignItems: 'center', gap: 4,
+              }}>
+                {isNew && !on && <span style={{ fontSize: 8, background: '#A8C7B8', color: '#1F2E27', borderRadius: 3, padding: '1px 4px', fontWeight: 800, letterSpacing: 0.5 }}>NEW</span>}
+                {m.title.toLowerCase()}
+              </button>
             );
           })}
         </div>
@@ -170,11 +176,11 @@ function Stage() {
         </div>
         <div style={{ flex: '1 1 280px' }}>
           <div style={{ color: '#A8C7B8', fontWeight: 800, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6 }}>Flow</div>
-          Today (live hero) → Schedule (preset routines) → Insights (compliance + export) → Alerts (3-miss escalation) → Settings (devices + rules) · Nudge & Rewards as sub-flows.
+          Today (live hero + Focus controls) → Schedule (preset routines) → Insights (compliance + export) → Alerts (3-miss escalation) → Settings → Nudge & Rewards. Tap "focus & blocking" above for the Supabase realtime lock flow.
         </div>
         <div style={{ flex: '1 1 280px' }}>
-          <div style={{ color: '#A8C7B8', fontWeight: 800, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6 }}>Open questions</div>
-          Should "Nudge" support voice memo? Multi-kid switcher when sibling joins? Which laptop signals matter most beyond focus app?
+          <div style={{ color: '#A8C7B8', fontWeight: 800, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6 }}>Architecture</div>
+          Caregiver INSERT → <code style={{ color: '#A8C7B8', fontSize: 10 }}>block_commands</code> → Supabase realtime → Electron tray subscribes → overlay shown in &lt;100ms. Audit trail rows. expires_at auto-release.
         </div>
       </div>
 

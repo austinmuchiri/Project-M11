@@ -25,13 +25,22 @@
     "esbuild": "0.24.0",
     "typescript": "5.6.3"
   },
+  "author": "Hackcessible 2026 Group 1",
   "build": {
     "appId": "com.timekeeper.monitor",
     "productName": "TimeKeeper Monitor",
     "directories": { "output": "release" },
     "files": ["dist/**/*", "assets/**/*", "package.json"],
+    "npmRebuild": false,
+    "buildDependenciesFromSource": false,
+    "nodeGypRebuild": false,
+    "electronDist": "../../node_modules/.pnpm/electron@33.0.2/node_modules/electron/dist",
     "mac": { "category": "public.app-category.utilities" },
-    "win": { "target": "nsis" },
+    "win": {
+      "target": [
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
     "linux": { "target": ["AppImage", "deb"] }
   }
 }
