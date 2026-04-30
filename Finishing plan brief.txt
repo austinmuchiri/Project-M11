@@ -1,653 +1,551 @@
-﻿Hackcessible 2026 — Claude Code Completion Brief
-End-to-end instructions for bringing both repos to production-ready state. Read this entire file before starting any Claude Code session.
+# M11 Finishing Brief — Hackcessible 2026
+**Written: 30 April 2026 | Based on: 29 April status report + full repo audit**
 
+This brief covers everything needed to bring the watch, caregiver app, and laptop to
+a fully communicating, production-ready state. Follow sessions in order — each one
+builds on the previous.
 
-________________
+---
 
+## Communication Architecture
 
-1. Repos & Local Structure
-You have two repos cloned locally:
+```
+┌──────────────────────────────────────────────────────┐
+│                    SUPABASE                          │
+│  tables: routines · task_events · devices ·          │
+│          laptop_heartbeat · block_commands · nudges  │
+└──────┬──────────────────┬──────────────────┬─────────┘
+       │ Realtime sub      │ writes           │ Realtime sub
+       ▼                   │                  ▼
+┌─────────────┐            │         ┌───────────────────┐
+│  CAREGIVER  │◄───────────┘         │  LAPTOP MONITOR   │
+│  React app  │                      │  Electron tray    │
+│  (Vercel /  │ ─── block_commands──►│  - heartbeat push │
+│  Android)   │◄── heartbeat ────────│  - lockscreen     │
+└─────────────┘                      │  - app blocking   │
+       ▲                             └────────┬──────────┘
+       │ Realtime sub                         │ BLE (real hw)
+       │                                      ▼
+┌─────────────┐                     ┌──────────────────┐
+│   BROWSER   │ ──writes events────►│   ESP32-S3 WATCH │
+│   WATCH SIM │    to Supabase      │   C firmware     │
+│  (no-hw QA) │                     │   (BLE → laptop) │
+└─────────────┘                     └──────────────────┘
+```
 
+**Rule:** The watch (real or simulated) inserts `task_events` rows.
+The laptop inserts `laptop_heartbeat` rows and reads `block_commands` rows.
+The caregiver app reads everything via Realtime and writes `block_commands`.
 
-~/Hackcessible-2026/
+---
 
+## What Is Already Working (Do Not Redo)
 
-├── jaki/               ← Jaki Caregiver Companion (ArthurOS) — separate repo
+- `packages/supabase-client/src/index.ts` — full `TimekeeperClient` interface with real
+  Supabase and mock implementations. Both `SupabaseImpl` and `MockImpl` exist.
+- `store.ts` — `bootstrapAuth`, `loadKidData`, `subscribeEvents`, `subscribeHeartbeat`,
+  `sendBlockCommand`, `lockLaptop`, `unlockLaptop`, `blockApp` all implemented.
+- Realtime subscriptions in `store.ts` (lines 106–107) fire correctly when connected.
+- Login screen, auth flow, session guard — all working.
+- `apps/caregiver/android/` — Capacitor Android project is set up.
+- `apps/watch-simulator/` — runs in browser, renders all watch UI screens correctly.
+- `apps/laptop-monitor/` — Electron tray, lockscreen overlay, app-block, watcher all built.
+- Schema and migrations in `packages/supabase-client/sql/schema.sql`.
 
+---
 
-└── m11/                ← M11 monorepo (Timekeeper, Laptop Monitor, Watch Simulator, Shared packages)
+## Session A — Caregiver App: Fix All Static Data & Wire Settings
 
+**Start from:** `cd timekeeper/apps/caregiver && claude`
 
-    ├── apps/
+### A1 — Dynamic header (App.tsx)
 
+File: `src/App.tsx` lines 15–22
 
-    │   ├── caregiver/
+The `META` record has hardcoded subtitle strings. Fix two of them:
 
+```ts
+// BEFORE
+home:     { title: 'Today', subtitle: 'Munene · 8 yrs', ... },
+schedule: { title: 'Schedule', subtitle: 'Today · Sun, Apr 25', ... },
 
-    │   ├── laptop-monitor/
+// AFTER — read from store
+```
 
+Replace the static subtitle values with computed strings:
+- `home` subtitle: derive from `useStore(s => s.kid)` → `${kid.name} · ${kid.age} yrs`
+- `schedule` subtitle: `'Today · ' + new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })`
 
-    │   └── watch-simulator/
+The `META` constant must become a function or the subtitles must be computed inline in
+the `App` body and passed to `<AppHeader>` directly.
 
+### A2 — Live streak and stars (Home.tsx)
 
-    ├── packages/
+File: `src/screens/Home.tsx` lines 221–224
 
+`StatCard` for streak shows hardcoded `12` and `23`.
 
-    │   ├── ui/
+Fix:
+- **Streak**: compute from `state.events` — count consecutive days that have at least
+  one `status: 'done'` event. Add a `computeStreak(events: TaskEvent[]): number`
+  selector in `store.ts` and export it.
+- **Stars this week**: sum `rewardStars` from task definitions for all `done` events in
+  the last 7 days. Add `computeWeekStars(routines, events): number` selector in `store.ts`.
 
+Replace the hardcoded values with `useStore(computeStreak)` and
+`useStore(computeWeekStars)`.
 
-    │   ├── schema/
+Also fix the Rewards page subtitle in Settings.tsx line 168:
+`'Catalog · 184 ★ available'` → derive from the same `computeWeekStars` value.
 
+### A3 — Focus controls: check laptop connected first (Home.tsx)
 
-    │   └── supabase-client/
+File: `src/screens/Home.tsx`, `FocusControlsCard` function (~line 235)
 
+Currently `onLock` fires immediately regardless of laptop state.
 
-    └── apps/firmware/   ← C code (watch firmware)
+Fix: check `state.heartbeat` before allowing lock/block. If heartbeat is null or
+`Date.now() - heartbeat.ts > 30_000` (laptop offline), show an inline error instead:
 
+```
+"Laptop is offline — open the Routine Tracker tray app first"
+```
 
-________________
+Add `const laptopOnline = heartbeat && (Date.now() - heartbeat.ts < 30_000)` and
+gate the button action behind it. Dim the buttons and show a warning row when offline.
 
+### A4 — Schedule: preset routines + date (Schedule.tsx)
 
-2. Credentials & Tokens to Collect BEFORE Coding
-Do not start Claude Code sessions until you have gathered everything in this section. Create a local .env.local file in each app — never commit these to GitHub.
-2a. Supabase (Required by: Jaki, Timekeeper/Caregiver)
-Go to https://app.supabase.com → your project → Settings → API
+File: `src/screens/Schedule.tsx`
 
+**Problem 1:** If `routines` is empty (new account), `selected` is undefined and adding
+a task crashes. Fix: when `routines.length === 0`, show a "Create your first routine"
+empty state with a button that calls `client.createRoutine` to insert one of the three
+PRESETS (`morning`, `school`, `evening`) into Supabase. Add `createRoutine` to
+`TimekeeperClient` in `packages/supabase-client/src/index.ts` and implement it in
+`SupabaseImpl` (insert into `routines` table) and `MockImpl` (push to in-memory array).
 
-SUPABASE_URL=https://xxxx.supabase.co
+**Problem 2:** `+New` and `Add Task` buttons are too small. Increase their height to
+`44px` minimum and font-size to `14px`.
 
+**Problem 3:** The date in the header subtitle is hardcoded — fixed in A1 above.
 
-SUPABASE_ANON_KEY=eyJ...          # "anon public" key
+### A5 — Alerts: miss-rule responds to settings (Alerts.tsx + Settings.tsx)
 
+File: `src/screens/Settings.tsx` lines 17–18 (`missThreshold` local state)
+File: `src/screens/Alerts.tsx`
 
-SUPABASE_SERVICE_ROLE_KEY=eyJ...  # "service_role" key (server-side only, never expose client-side)
+`missThreshold` is local component state in Settings — it resets on navigation and
+never flows to Alerts. Fix:
 
+1. Move `missThreshold` into the global store. Add `missThreshold: number` to `State`
+   in `store.ts`, default to `3`. Add `setMissThreshold(n: number)` action.
+2. Persist it: call `client.updateAlert` or store in `localStorage` as a fallback
+   (localStorage is fine for a hackathon — key: `tk_miss_threshold`).
+3. In `AlertsScreen`, read `useStore(s => s.missThreshold)` and filter/highlight alerts
+   that exceed it.
 
-Also needed from Supabase → Settings → Database:
+### A6 — Settings: pair device button (Settings.tsx)
 
+File: `src/screens/Settings.tsx` line 57
 
-DATABASE_URL=postgresql://postgres:[password]@db.xxxx.supabase.co:5432/postgres
+The `Btn` for "Pair new device" has no `onClick`. For the demo, pairing is handled by the
+laptop monitor tray app (it writes a `devices` row to Supabase on first heartbeat).
+The button should show a modal/toast explaining this:
 
+```
+"Open the Routine Tracker app on the laptop — it pairs automatically on first launch."
+```
 
-Check that the following tables exist in your Supabase project (create them if not):
+Add `const [pairHint, setPairHint] = useState(false)` and show a dismissable info box.
+No BLE pairing code needed in the caregiver app itself.
 
+### A7 — Settings: persist quiet hours toggle (Settings.tsx)
 
-* users — caregiver and patient accounts
-* events — watch firmware events
-* locations — Arthur's real-time location
-* notifications — SOS and push notification log
-2b. Firebase / FCM — Push Notifications (Required by: Jaki, Timekeeper/Caregiver)
-Go to https://console.firebase.google.com → your project → Project Settings → Cloud Messaging
+File: `src/screens/Settings.tsx` line 19 (`quietHours` local state)
 
+`quietHours`, `escalateNanny`, `hapticOnly`, `lockOnTask`, `blockGames` are all local
+state and reset on navigation. For the hackathon, persist them in `localStorage`:
 
-FIREBASE_PROJECT_ID=your-project-id
+```ts
+const [quietHours, setQuietHoursState] = useState(
+  () => JSON.parse(localStorage.getItem('tk_quiet_hours') ?? 'true')
+);
+const setQuietHours = (v: boolean) => {
+  localStorage.setItem('tk_quiet_hours', JSON.stringify(v));
+  setQuietHoursState(v);
+};
+```
 
+Apply the same pattern to all five toggle settings.
 
-FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxx@your-project.iam.gserviceaccount.com
+### A8 — Insights: connect real data (Insights.tsx)
 
+File: `src/screens/Insights.tsx`
 
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+Read from the store and replace static values:
+- Compliance % → `(done / total * 100)` from `resolveTodayTasks`
+- Task completion chart → bucket `state.events` by day for the last 7 days
+- Top missed task → count `missed` events by `taskId`, surface the highest
+- Export button: generate a plain-text summary (no PDF lib needed for hackathon) and
+  trigger `window.open('data:text/plain,...')` download
 
+### A9 — Rewards: connect real data (Rewards.tsx)
 
-FCM_SERVER_KEY=AAAA...   # Legacy server key (for Capacitor push plugin)
+File: `src/screens/Rewards.tsx`
 
+Replace static star counts with `useStore(computeWeekStars)` (defined in A2).
 
-Download google-services.json (Android) and GoogleService-Info.plist (iOS) from: Firebase Console → Project Settings → Your Apps → Download config files
+---
 
+## Session B — Watch Simulator: Write Events to Supabase
 
-Place them:
+**Start from:** `cd timekeeper/apps/watch-simulator && claude`
 
+The simulator currently renders watch UI only. It needs to write events to Supabase so
+the caregiver app receives them live.
 
-* jaki/android/app/google-services.json
-* jaki/ios/App/App/GoogleService-Info.plist
-2c. Google Maps / Mapbox — Real Map in Jaki (Required by: Jaki)
-Option A — Google Maps: Go to https://console.cloud.google.com → APIs & Services → Credentials → Create API Key Enable: Maps SDK for Android, Maps SDK for iOS, Maps JavaScript API
+### B1 — Add Supabase client to simulator (simulator.jsx)
 
+File: `apps/watch-simulator/simulator.jsx`
 
-GOOGLE_MAPS_API_KEY=AIza...
+The simulator loads React from CDN. Add the Supabase client the same way:
 
+```html
+<!-- add to index.html before simulator.jsx script tag -->
+<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+```
 
-Add to jaki/android/app/src/main/AndroidManifest.xml:
+In `simulator.jsx`, initialise the client at the top:
 
+```js
+const SUPABASE_URL = 'YOUR_URL';         // hardcode for demo
+const SUPABASE_ANON_KEY = 'YOUR_KEY';    // hardcode for demo
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const DEMO_KID_ID = 'YOUR_KID_UUID';     // the UUID from your kids table
+```
 
-<meta-data android:name="com.google.android.geo.API_KEY" android:value="@string/google_maps_key"/>
+**Never commit these credentials** — the simulator is not public-facing.
 
+### B2 — Fire events on user actions (simulator.jsx)
 
-Option B — Mapbox: Go to https://account.mapbox.com → Access Tokens
+The simulator has a task start/complete flow. Hook into those UI interactions to write
+`task_events` rows:
 
+```js
+async function fireEvent(taskId, routineId, status) {
+  await sb.from('task_events').insert({
+    kid_id: DEMO_KID_ID,
+    routine_id: routineId,
+    task_id: taskId,
+    status,          // 'started' | 'done' | 'missed' | 'paused'
+    ts: Date.now(),
+  });
+}
+```
 
-MAPBOX_PUBLIC_TOKEN=pk.eyJ1...
+Call `fireEvent` when:
+- User taps "Start" on a task → `status: 'started'`
+- User taps the checkmark / "Done" → `status: 'done'`
+- Timer expires without action → `status: 'missed'`
 
+### B3 — Push fake device heartbeat (simulator.jsx)
 
-MAPBOX_SECRET_TOKEN=sk.eyJ1...   # For downloads only, never ship in app
-2d. Apple Developer / iOS (Required if building for iOS)
-* Apple Developer account: https://developer.apple.com
-* Bundle ID for Jaki: com.yourorg.jaki
-* Bundle ID for Timekeeper: com.yourorg.timekeeper
-* Generate provisioning profiles and certificates in Xcode → Signing & Capabilities
-* Add push notification entitlement: Xcode → Target → Signing & Capabilities → + Push Notifications
+The caregiver Home screen shows watch battery and last-seen time from the `devices` table.
+Add a periodic upsert from the simulator:
 
+```js
+async function pushWatchPresence(battery) {
+  await sb.from('devices').upsert({
+    id: 'sim-watch-001',
+    kid_id: DEMO_KID_ID,
+    kind: 'watch',
+    label: 'Simulator Watch',
+    battery,
+    last_seen: Date.now(),
+    fw_version: 'sim-1.0',
+  }, { onConflict: 'id' });
+}
+```
 
-APPLE_TEAM_ID=XXXXXXXXXX   # 10-character Team ID from developer.apple.com
-2e. Android Keystore — Signing for Release Builds (Required by: Jaki, Timekeeper)
-Generate a keystore (run once, store the file safely — losing it means you can't update the app):
+Call this on simulator load and every 15 seconds via `setInterval`.
 
+### B4 — Subscribe to nudges (simulator.jsx)
 
-keytool -genkey -v -keystore release.keystore -alias hackcessible -keyalg RSA -keysize 2048 -validity 10000
+The caregiver can send nudges. Wire them up in the simulator so the watch UI reacts:
 
+```js
+sb.channel('nudges')
+  .on('postgres_changes', {
+    event: 'INSERT', schema: 'public', table: 'nudges',
+    filter: `kid_id=eq.${DEMO_KID_ID}`,
+  }, payload => {
+    showNudgeBanner(payload.new.message);
+  })
+  .subscribe();
+```
 
-ANDROID_KEYSTORE_PATH=./release.keystore
+Add a `showNudgeBanner` function that displays a temporary overlay on the watch face.
 
+---
 
-ANDROID_KEY_ALIAS=hackcessible
+## Session C — Laptop Monitor: Full Supabase Integration
 
+**Start from:** `cd timekeeper/apps/laptop-monitor && claude`
 
-ANDROID_KEYSTORE_PASSWORD=your-password
+### C1 — Check the existing client wiring (client.ts)
 
+File: `src/client.ts`
 
-ANDROID_KEY_PASSWORD=your-password
-2f. npm Private Registry (Required if publishing shared packages)
-If you decide to publish packages/schema and packages/supabase-client as private npm packages:
+Verify this file already calls `createTimekeeperClient()` from
+`@timekeeper/supabase-client`. If it imports the package, check:
+1. Does it call `pushHeartbeat` on an interval? If not, add it.
+2. Does it call `subscribeBlockCommands`? If not, add it.
+3. Does it call `subscribeNudges`? If not, add it.
 
+The heartbeat shape expected by the schema:
+```ts
+{
+  kidId: string;
+  ts: number;
+  focus: { app: string; windowTitle: string; idleSec: number } | null;
+  online: boolean;
+}
+```
 
-npm login --registry=https://registry.npmjs.org
+### C2 — Heartbeat loop (client.ts or main.ts)
 
+If `pushHeartbeat` is not already on a timer, add:
 
-NPM_TOKEN=npm_...   # From npmjs.com → Access Tokens → Generate New Token → Automation
+```ts
+setInterval(async () => {
+  const focus = await getFocusedApp();   // already in watcher.ts
+  await client.pushHeartbeat({
+    kidId: KID_ID,
+    ts: Date.now(),
+    focus,
+    online: true,
+  });
+}, 10_000);   // every 10 seconds
+```
 
+Also call it immediately on app launch.
 
-Add to packages/schema/.npmrc and packages/supabase-client/.npmrc:
+### C3 — Self-register as a device on first launch (client.ts)
 
+On startup, upsert into `devices`:
+```ts
+await supabase.from('devices').upsert({
+  id: machineId(),          // use 'node-machine-id' package
+  kid_id: KID_ID,
+  kind: 'laptop',
+  label: os.hostname(),
+  last_seen: Date.now(),
+}, { onConflict: 'id' });
+```
 
-//registry.npmjs.org/:_authToken=${NPM_TOKEN}
-2g. Electron Code Signing — Laptop Monitor (Required for Mac/Windows distribution)
-Mac (notarization): Go to https://appleid.apple.com → App-Specific Passwords → Generate
+This makes the "Pair new device" flow automatic — launching the tray app pairs the laptop.
+Install: `npm install node-machine-id`.
 
+### C4 — Block command subscriber (client.ts)
 
-APPLE_ID=your@email.com
+Confirm `subscribeBlockCommands` is called and routed to the right handlers:
 
+```ts
+client.subscribeBlockCommands(KID_ID, (cmd) => {
+  if (cmd.action === 'lock_screen')   lockscreen.show(cmd.payload);
+  if (cmd.action === 'unlock_screen') lockscreen.hide();
+  if (cmd.action === 'block_app')     appBlock.block(cmd.payload.appName);
+});
+```
 
-APPLE_APP_SPECIFIC_PASSWORD=xxxx-xxxx-xxxx-xxxx
+The lockscreen and app-block modules already exist in `src/lockscreen.ts` and
+`src/app-block.ts`. This is just wiring.
 
+### C5 — Nudge subscriber (client.ts)
 
-APPLE_TEAM_ID=XXXXXXXXXX
+When a nudge arrives, show a system notification:
 
+```ts
+client.subscribeNudges(KID_ID, (n) => {
+  new Notification('Routine Tracker', { body: n.message });
+});
+```
 
-Windows (optional for hackathon): Requires a paid EV code signing certificate from DigiCert or Sectigo. Skip for demo — only needed for production distribution.
+Electron's `Notification` API works without extra dependencies.
 
+### C6 — Offline queue with electron-store (main.ts)
 
-________________
+Install: `npm install electron-store`.
 
+Wrap `pushHeartbeat` in a try/catch. On failure, push to a local queue:
 
-3. Android Studio Setup
-Complete this before running any Capacitor/Android builds.
-3a. Install Android Studio
-Download from: https://developer.android.com/studio Install the following during setup (or via SDK Manager afterwards):
+```ts
+import Store from 'electron-store';
+const queue = new Store({ name: 'offline-queue' });
 
+async function safeHeartbeat(h: LaptopHeartbeat) {
+  try {
+    await client.pushHeartbeat(h);
+    flushQueue();
+  } catch {
+    const q = queue.get('heartbeats', []) as LaptopHeartbeat[];
+    queue.set('heartbeats', [...q, h]);
+  }
+}
 
-* Android SDK (API Level 33 — Android 13, minimum target)
-* Android SDK Build-Tools 33.0.2+
-* Android Emulator
-* Android SDK Platform-Tools
-3b. Set Environment Variables
-Add to your ~/.bashrc or ~/.zshrc:
+async function flushQueue() {
+  const q = queue.get('heartbeats', []) as LaptopHeartbeat[];
+  if (!q.length) return;
+  for (const h of q) await client.pushHeartbeat(h);
+  queue.set('heartbeats', []);
+}
+```
 
+Add an online/offline indicator to the tray popup HTML:
+- Green dot + "Connected" when last heartbeat succeeded
+- Red dot + "Offline — queued N events" when catch fires
 
-export ANDROID_HOME=$HOME/Android/Sdk        # Linux
+### C7 — Environment variables (main.ts)
 
+The laptop monitor needs `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and a
+hardcoded `KID_ID` to identify whose data to push. Store these in a local `.env` file
+at `apps/laptop-monitor/.env` (never commit it). Load with `dotenv`:
 
-# export ANDROID_HOME=$HOME/Library/Android/sdk  # Mac
+```ts
+import 'dotenv/config';
+const KID_ID = process.env.TK_KID_ID!;
+```
 
+---
 
-export PATH=$PATH:$ANDROID_HOME/emulator
+## Session D — C Firmware: BLE Event Bridge
 
+**Start from:** `cd timekeeper/apps/firmware && claude` (only if hardware is available)
 
-export PATH=$PATH:$ANDROID_HOME/platform-tools
+The firmware already has `ble/ble_gatt.c`, `ble/sync.c`, and `tasks/scheduler.c`.
+The laptop monitor must bridge BLE → Supabase.
 
+### D1 — BLE GATT characteristic for events
 
-export PATH=$PATH:$ANDROID_HOME/tools
+File: `main/ble/ble_gatt.c`
 
+Confirm there is a writable GATT characteristic for the laptop to read task events.
+The expected format is a JSON string or a compact binary struct:
 
-Then reload:
+```c
+// Minimum viable: JSON string written to characteristic UUID 0xAB01
+// { "taskId": "...", "routineId": "...", "status": "done", "ts": 1234567890 }
+```
 
+If the characteristic exists but is empty: wire it to the scheduler so that when
+`scheduler.c` calls `task_mark_done()`, it also writes to the BLE characteristic.
 
-source ~/.bashrc
+### D2 — Laptop monitor BLE reader (new file: src/ble-bridge.ts)
 
+Install: `npm install @abandonware/noble` (Node BLE library for Electron).
 
-Verify:
+Create `src/ble-bridge.ts`:
 
+```ts
+import noble from '@abandonware/noble';
 
-adb --version
-3c. Capacitor Android Sync
-After Android Studio is installed, run these from inside each app (jaki, caregiver):
+const SERVICE_UUID = 'ab00';
+const EVENT_CHAR   = 'ab01';
+const NUDGE_CHAR   = 'ab02';   // writable — laptop pushes nudges to watch
 
+export function startBleBridge(onEvent: (ev: TaskEvent) => void) {
+  noble.startScanning([SERVICE_UUID]);
+  noble.on('discover', (peripheral) => {
+    peripheral.connect(() => {
+      peripheral.discoverServices([SERVICE_UUID], (_, services) => {
+        services[0].discoverCharacteristics([], (_, chars) => {
+          const eventChar = chars.find(c => c.uuid === EVENT_CHAR);
+          eventChar?.subscribe();
+          eventChar?.on('data', (buf) => {
+            const ev = JSON.parse(buf.toString()) as TaskEvent;
+            onEvent(ev);
+          });
+        });
+      });
+    });
+  });
+}
+```
 
-npm install
+In `client.ts`, call `startBleBridge` and pipe events to `client.recordEvent`.
 
+### D3 — BLE nudge write (ble-bridge.ts)
 
-npx cap add android        # Only if android/ folder does not exist yet
+When the caregiver sends a nudge, write it to the `NUDGE_CHAR` characteristic so the
+watch vibrates and displays the message. The firmware `tasks/haptics.c` already has
+vibration patterns — just read the characteristic and call the haptic trigger.
 
+---
 
-npx cap sync android       # Run this every time after npm install or code changes
+## Token Optimization Rules
 
+1. One session per app. Never mix apps in one Claude Code session.
+2. Give exact file paths in every prompt. "Edit `src/store.ts` line 42" — not "find the store."
+3. Run `/compact` every ~25 messages.
+4. Paste terminal errors verbatim, never describe them.
+5. Batch 2–3 related tasks per message (e.g., "Do A2 streak selector + A2 stars selector + update Rewards subtitle in one pass").
 
-npx cap open android       # Opens Android Studio for the project
-3d. Create an Emulator (AVD)
-In Android Studio: Tools → Device Manager → Create Device
+---
 
+## Session Order & Dependencies
 
-* Hardware: Pixel 6
-* System Image: API 33 (Tiramisu) — download if not present
-* Name: Hackcessible_Pixel6
+```
+Session A (Caregiver fixes)    — no dependencies, do first
+    ↓
+Session B (Watch Sim → Supabase) — needs Supabase URL/key from A
+    ↓
+Session C (Laptop Monitor)     — needs kid_id from A, schema from B
+    ↓
+Session D (C Firmware BLE)     — needs Session C bridge, needs hardware
+```
 
+Sessions B and C can run in parallel if two people are working.
 
-Or via command line:
+---
 
+## Credentials Needed Before Starting
 
-avdmanager create avd -n Hackcessible_Pixel6 -k "system-images;android-33;google_apis;x86_64"
+Create `timekeeper/.env.local` (already in `.gitignore`):
 
+```
+VITE_SUPABASE_URL=https://xxxx.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJ...
+SUPABASE_SERVICE_ROLE_KEY=eyJ...   # for QA scripts only
+TK_KID_ID=<UUID from kids table>   # run: SELECT id FROM kids LIMIT 1
+```
 
-emulator -avd Hackcessible_Pixel6
-3e. Run on Emulator
-npx cap run android       # From inside jaki/ or apps/caregiver/
+Create `timekeeper/apps/laptop-monitor/.env`:
+```
+VITE_SUPABASE_URL=https://xxxx.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJ...
+TK_KID_ID=<same UUID>
+```
 
+**Never commit either file.**
 
-________________
+---
 
+## Definition of Done
 
-4. Node & Tooling Requirements
-Confirm these versions before starting:
-
-
-node --version    # Must be >=18
-
-
-npm --version     # Must be >=9
-
-
-npx cap --version # Capacitor CLI
-
-
-If Node is outdated:
-
-
-nvm install 20
-
-
-nvm use 20
-
-
-________________
-
-
-5. App-by-App Completion Tasks
-Session strategy for Claude Code:
-* Open one terminal per app — one Claude Code session per app
-* Always start each session with: claude --add-context brief.md
-* Run /compact every ~30 messages to preserve tokens
-* Never carry context from one app's session into another
-
-
-________________
-
-
-5a. Jaki — Caregiver Companion (ArthurOS)
-Start session from: cd jaki && claude
-
-
-Task 1 — Replace in-memory seed data with real Supabase backend
-
-
-Replace the fake data in data.ts with real Supabase queries.
-
-
-Use SUPABASE_URL and SUPABASE_ANON_KEY from .env.local.
-
-
-The tables are: users, events, locations, notifications.
-
-
-Use the supabase-js client. Add loading and error states to all data fetches.
-
-
-Task 2 — Auth (Jaki's login)
-
-
-Add Supabase Auth login screen for the caregiver (Jaki).
-
-
-Use email/password auth. On login, store the session token.
-
-
-Gate all data fetches behind the authenticated session.
-
-
-Task 3 — Replace fake map with real map
-
-
-Replace the mock map component with Google Maps (API key in .env.local as GOOGLE_MAPS_API_KEY).
-
-
-Show Arthur's real-time location from the locations table.
-
-
-Subscribe to Supabase realtime on the locations table and update the pin live.
-
-
-Task 4 — Real push notifications for SOS
-
-
-Wire Capacitor Push Notifications plugin to Firebase Cloud Messaging.
-
-
-google-services.json is already in android/app/.
-
-
-When an SOS event is inserted into the notifications table, trigger a push to Jaki's device.
-
-
-Use the FCM_SERVER_KEY from .env.local to send from the backend.
-
-
-Task 5 — Capacitor build
-
-
-Wire Capacitor for Android build.
-
-
-Run: npx cap sync android
-
-
-Fix any plugin compatibility issues.
-
-
-Confirm the app builds and runs on the Hackcessible_Pixel6 emulator.
-
-
-________________
-
-
-5b. Timekeeper / Caregiver (apps/caregiver)
-Start session from: cd m11/apps/caregiver && claude
-
-
-Task 1 — Remove isMock guard and connect production Supabase
-
-
-Find all isMock guards and demo banner UI components and remove them.
-
-
-Replace mock Supabase credentials with the real SUPABASE_URL and SUPABASE_ANON_KEY from .env.local.
-
-
-Confirm all data is flowing from the real database.
-
-
-Task 2 — Connect real watch firmware events
-
-
-The watch sends events to the events table in Supabase.
-
-
-Subscribe to Supabase Realtime on the events table.
-
-
-Display incoming events live in the caregiver dashboard.
-
-
-Task 3 — Capacitor push notifications
-
-
-Wire Capacitor Push Notifications plugin for this app as well.
-
-
-Use the same google-services.json from Firebase.
-
-
-Send a push notification to the caregiver when a new critical event arrives.
-
-
-________________
-
-
-5c. Laptop Monitor (apps/laptop-monitor)
-Start session from: cd m11/apps/laptop-monitor && claude
-
-
-Task 1 — Harden offline heartbeat sync
-
-
-The heartbeat sync currently fails silently when offline.
-
-
-Add a local queue (use electron-store) that buffers events while offline.
-
-
-When connectivity resumes, flush the queue to Supabase in order.
-
-
-Add a visible offline/online indicator in the UI.
-
-
-Task 2 — Auto-update (electron-updater)
-
-
-Add electron-updater to the project.
-
-
-Configure it to check GitHub Releases for updates on app launch.
-
-
-Add an update notification banner in the app UI when an update is available.
-
-
-The GitHub repo for releases is: [YOUR GITHUB REPO URL HERE]
-
-
-Task 3 — Code signing config (Mac)
-
-
-Add electron-builder notarization config to package.json.
-
-
-Use APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID from .env.local.
-
-
-Do not run the actual notarization — just configure it so the build script is ready.
-
-
-________________
-
-
-5d. Watch Simulator (apps/watch-simulator)
-Start session from: cd m11/apps/watch-simulator && claude
-
-
-This app is now a QA/testing tool only — it is not shipped to users.
-
-
-Task 1 — QA test scripts
-
-
-Write automated QA test scripts that simulate watch firmware events (from apps/firmware C code).
-
-
-The scripts should insert test events into the Supabase events table and verify they appear correctly in the caregiver app.
-
-
-Use the SUPABASE_SERVICE_ROLE_KEY for test data insertion.
-
-
-Task 2 — Update README
-
-
-Update README.md to clearly state:
-
-
-- This simulator is a QA/testing tool only
-
-
-- It is not shipped to end users
-
-
-- How to run the test scripts
-
-
-- What events can be simulated
-
-
-________________
-
-
-5e. Shared Packages Decision
-Before starting this session, decide:
-
-
-* If Jaki and M11 will share types → publish packages/schema and packages/supabase-client as private npm packages
-* If the two projects stay fully separate → skip publishing, keep as workspace-local only
-
-
-If publishing:
-
-
-Start session from: cd m11/packages/schema && claude
-
-
-Configure packages/schema and packages/supabase-client for private npm publishing.
-
-
-Add proper package.json with name @hackcessible/schema and @hackcessible/supabase-client.
-
-
-Add .npmrc using NPM_TOKEN from environment.
-
-
-Add a build step using tsup.
-
-
-Do not publish yet — just make the packages publishable.
-
-
-________________
-
-
-6. Git Workflow for the Team
-Every team member follows this before touching any file:
-
-
-git pull origin main          # Always pull first
-
-
-git checkout -b yourname/feature-name   # Work on your own branch
-
-
-# ... make changes with Claude Code ...
-
-
-git add .
-
-
-git commit -m "short description of what changed"
-
-
-git push origin yourname/feature-name
-
-
-Then open a Pull Request on GitHub and tag a teammate to review before merging to main.
-
-
-Branch naming convention:
-
-
-* austin/jaki-supabase
-* austin/timekeeper-mock-removal
-* yourname/laptop-monitor-offline
-
-
-Never push directly to main.
-
-
-________________
-
-
-7. Token Optimization Rules for Claude Code
-Follow these rules to stretch your remaining Claude token budget:
-
-
-1. One app per session. Never run Claude Code across multiple apps in the same session.
-2. Give exact file paths. Always tell Claude which file to edit: "Edit apps/caregiver/src/lib/supabase.ts" — this avoids file-search token burn.
-3. Run /compact every ~30 messages. This compresses conversation history and drops resolved context.
-4. Use Gemini for config and boilerplate. Anything that is "generate a standard config file" should go to Gemini Pro, not Claude Code.
-5. Paste errors directly. When something breaks, paste the exact terminal error — don't describe it. Claude resolves exact errors in fewer turns.
-6. Batch related tasks. Give Claude 2–3 related tasks in one message rather than one at a time. Example: "Remove isMock, connect real Supabase credentials, and remove the demo banner — all in one pass."
-7. End sessions cleanly. When a task is done, end the session (/exit) before starting the next app. Do not let sessions idle open.
-
-
-________________
-
-
-8. Tasks to Outsource to Gemini Pro
-Copy-paste these prompts directly into Gemini Pro to save Claude tokens:
-
-
-Google Maps / Mapbox config boilerplate:
-
-
-Generate a full capacitor.config.ts and AndroidManifest.xml patch to add Google Maps SDK for Android using API key from environment variable GOOGLE_MAPS_API_KEY. Project uses Capacitor 5 and React.
-
-
-FCM push notification config:
-
-
-Generate the complete @capacitor/push-notifications setup for a React + Capacitor 5 app on Android. Include the capacitor.config.ts entry, the AndroidManifest.xml changes, and the React hook to request permission and handle incoming notifications.
-
-
-Electron auto-update boilerplate:
-
-
-Generate electron-builder config in package.json for auto-update via GitHub Releases. Include the electron-updater setup in main.js that checks for updates on launch and shows an update notification. App name: Laptop Monitor.
-
-
-Mac notarization build script:
-
-
-Generate a GitHub Actions workflow that builds and notarizes an Electron app for macOS using APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID secrets.
-
-
-Watch Simulator QA test script:
-
-
-Generate a Node.js test script that inserts mock watch firmware events into a Supabase table called "events". The events should include: heart_rate, sos_trigger, battery_low, fall_detected. Use @supabase/supabase-js with SUPABASE_SERVICE_ROLE_KEY from environment.
-
-
-private npm package config:
-
-
-Generate a package.json and tsup.config.ts for a TypeScript package called @hackcessible/schema that exports Zod schemas and TypeScript types. It should build to both ESM and CJS.
-
-
-________________
-
-
-9. Definition of Done
-The project is complete when all of the following are true:
-
-
-* Jaki loads Arthur's real location from Supabase on a real map
-* Jaki receives real push notifications for SOS events on a physical or emulated Android device
-* Jaki login/auth works with real Supabase Auth
-* Timekeeper/Caregiver connects to production Supabase, isMock is fully removed
-* Timekeeper receives real watch firmware events via Supabase Realtime
-* Laptop Monitor recovers gracefully from offline — no data loss
-* Laptop Monitor build is configured for auto-update and Mac notarization
-* Watch Simulator README updated; QA scripts written and working
-* Both repos have clean main branches with no uncommitted changes
-* No .env.local or keystore files committed to GitHub (check with git log --all -- .env.local)
-
-
-________________
-
-
-
-
-Last updated: April 2026 — Hackcessible 2026, Group 1&2
+- [ ] Caregiver header shows real kid name and today's date (not "Munene · 8 yrs", not "Sun, Apr 25")
+- [ ] Streak and Stars cards show computed values from real events, not 12 / 23
+- [ ] Focus controls show "Laptop offline" warning when laptop monitor is not running
+- [ ] Adding a task to an empty routine works — presets appear for new accounts
+- [ ] Miss-threshold change in Settings is reflected live in Alerts screen
+- [ ] Quiet hours and focus toggles persist across navigation (localStorage)
+- [ ] Insights shows real compliance % and top-missed task from actual event data
+- [ ] Pair device button shows a helpful message instead of doing nothing
+- [ ] Watch simulator buttons write `task_events` rows to Supabase
+- [ ] Caregiver app Home screen updates live when simulator fires an event (no page reload)
+- [ ] Laptop monitor pushes a heartbeat row every 10 seconds
+- [ ] Caregiver Home "Laptop" tile shows live app name from heartbeat
+- [ ] Lock laptop button from caregiver triggers lockscreen on the laptop monitor
+- [ ] Laptop self-registers in `devices` table on first launch (Pair device flow is automatic)
+- [ ] No `.env.local` or `.env` files committed to git (`git log --all -- "*.env*"` returns nothing)
+- [ ] Demo runs end-to-end: open simulator → tap Start task → caregiver shows it live → tap Lock laptop → lockscreen appears on laptop
