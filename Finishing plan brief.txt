@@ -1,0 +1,653 @@
+﻿Hackcessible 2026 — Claude Code Completion Brief
+End-to-end instructions for bringing both repos to production-ready state. Read this entire file before starting any Claude Code session.
+
+
+________________
+
+
+1. Repos & Local Structure
+You have two repos cloned locally:
+
+
+~/Hackcessible-2026/
+
+
+├── jaki/               ← Jaki Caregiver Companion (ArthurOS) — separate repo
+
+
+└── m11/                ← M11 monorepo (Timekeeper, Laptop Monitor, Watch Simulator, Shared packages)
+
+
+    ├── apps/
+
+
+    │   ├── caregiver/
+
+
+    │   ├── laptop-monitor/
+
+
+    │   └── watch-simulator/
+
+
+    ├── packages/
+
+
+    │   ├── ui/
+
+
+    │   ├── schema/
+
+
+    │   └── supabase-client/
+
+
+    └── apps/firmware/   ← C code (watch firmware)
+
+
+________________
+
+
+2. Credentials & Tokens to Collect BEFORE Coding
+Do not start Claude Code sessions until you have gathered everything in this section. Create a local .env.local file in each app — never commit these to GitHub.
+2a. Supabase (Required by: Jaki, Timekeeper/Caregiver)
+Go to https://app.supabase.com → your project → Settings → API
+
+
+SUPABASE_URL=https://xxxx.supabase.co
+
+
+SUPABASE_ANON_KEY=eyJ...          # "anon public" key
+
+
+SUPABASE_SERVICE_ROLE_KEY=eyJ...  # "service_role" key (server-side only, never expose client-side)
+
+
+Also needed from Supabase → Settings → Database:
+
+
+DATABASE_URL=postgresql://postgres:[password]@db.xxxx.supabase.co:5432/postgres
+
+
+Check that the following tables exist in your Supabase project (create them if not):
+
+
+* users — caregiver and patient accounts
+* events — watch firmware events
+* locations — Arthur's real-time location
+* notifications — SOS and push notification log
+2b. Firebase / FCM — Push Notifications (Required by: Jaki, Timekeeper/Caregiver)
+Go to https://console.firebase.google.com → your project → Project Settings → Cloud Messaging
+
+
+FIREBASE_PROJECT_ID=your-project-id
+
+
+FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxx@your-project.iam.gserviceaccount.com
+
+
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+
+
+FCM_SERVER_KEY=AAAA...   # Legacy server key (for Capacitor push plugin)
+
+
+Download google-services.json (Android) and GoogleService-Info.plist (iOS) from: Firebase Console → Project Settings → Your Apps → Download config files
+
+
+Place them:
+
+
+* jaki/android/app/google-services.json
+* jaki/ios/App/App/GoogleService-Info.plist
+2c. Google Maps / Mapbox — Real Map in Jaki (Required by: Jaki)
+Option A — Google Maps: Go to https://console.cloud.google.com → APIs & Services → Credentials → Create API Key Enable: Maps SDK for Android, Maps SDK for iOS, Maps JavaScript API
+
+
+GOOGLE_MAPS_API_KEY=AIza...
+
+
+Add to jaki/android/app/src/main/AndroidManifest.xml:
+
+
+<meta-data android:name="com.google.android.geo.API_KEY" android:value="@string/google_maps_key"/>
+
+
+Option B — Mapbox: Go to https://account.mapbox.com → Access Tokens
+
+
+MAPBOX_PUBLIC_TOKEN=pk.eyJ1...
+
+
+MAPBOX_SECRET_TOKEN=sk.eyJ1...   # For downloads only, never ship in app
+2d. Apple Developer / iOS (Required if building for iOS)
+* Apple Developer account: https://developer.apple.com
+* Bundle ID for Jaki: com.yourorg.jaki
+* Bundle ID for Timekeeper: com.yourorg.timekeeper
+* Generate provisioning profiles and certificates in Xcode → Signing & Capabilities
+* Add push notification entitlement: Xcode → Target → Signing & Capabilities → + Push Notifications
+
+
+APPLE_TEAM_ID=XXXXXXXXXX   # 10-character Team ID from developer.apple.com
+2e. Android Keystore — Signing for Release Builds (Required by: Jaki, Timekeeper)
+Generate a keystore (run once, store the file safely — losing it means you can't update the app):
+
+
+keytool -genkey -v -keystore release.keystore -alias hackcessible -keyalg RSA -keysize 2048 -validity 10000
+
+
+ANDROID_KEYSTORE_PATH=./release.keystore
+
+
+ANDROID_KEY_ALIAS=hackcessible
+
+
+ANDROID_KEYSTORE_PASSWORD=your-password
+
+
+ANDROID_KEY_PASSWORD=your-password
+2f. npm Private Registry (Required if publishing shared packages)
+If you decide to publish packages/schema and packages/supabase-client as private npm packages:
+
+
+npm login --registry=https://registry.npmjs.org
+
+
+NPM_TOKEN=npm_...   # From npmjs.com → Access Tokens → Generate New Token → Automation
+
+
+Add to packages/schema/.npmrc and packages/supabase-client/.npmrc:
+
+
+//registry.npmjs.org/:_authToken=${NPM_TOKEN}
+2g. Electron Code Signing — Laptop Monitor (Required for Mac/Windows distribution)
+Mac (notarization): Go to https://appleid.apple.com → App-Specific Passwords → Generate
+
+
+APPLE_ID=your@email.com
+
+
+APPLE_APP_SPECIFIC_PASSWORD=xxxx-xxxx-xxxx-xxxx
+
+
+APPLE_TEAM_ID=XXXXXXXXXX
+
+
+Windows (optional for hackathon): Requires a paid EV code signing certificate from DigiCert or Sectigo. Skip for demo — only needed for production distribution.
+
+
+________________
+
+
+3. Android Studio Setup
+Complete this before running any Capacitor/Android builds.
+3a. Install Android Studio
+Download from: https://developer.android.com/studio Install the following during setup (or via SDK Manager afterwards):
+
+
+* Android SDK (API Level 33 — Android 13, minimum target)
+* Android SDK Build-Tools 33.0.2+
+* Android Emulator
+* Android SDK Platform-Tools
+3b. Set Environment Variables
+Add to your ~/.bashrc or ~/.zshrc:
+
+
+export ANDROID_HOME=$HOME/Android/Sdk        # Linux
+
+
+# export ANDROID_HOME=$HOME/Library/Android/sdk  # Mac
+
+
+export PATH=$PATH:$ANDROID_HOME/emulator
+
+
+export PATH=$PATH:$ANDROID_HOME/platform-tools
+
+
+export PATH=$PATH:$ANDROID_HOME/tools
+
+
+Then reload:
+
+
+source ~/.bashrc
+
+
+Verify:
+
+
+adb --version
+3c. Capacitor Android Sync
+After Android Studio is installed, run these from inside each app (jaki, caregiver):
+
+
+npm install
+
+
+npx cap add android        # Only if android/ folder does not exist yet
+
+
+npx cap sync android       # Run this every time after npm install or code changes
+
+
+npx cap open android       # Opens Android Studio for the project
+3d. Create an Emulator (AVD)
+In Android Studio: Tools → Device Manager → Create Device
+
+
+* Hardware: Pixel 6
+* System Image: API 33 (Tiramisu) — download if not present
+* Name: Hackcessible_Pixel6
+
+
+Or via command line:
+
+
+avdmanager create avd -n Hackcessible_Pixel6 -k "system-images;android-33;google_apis;x86_64"
+
+
+emulator -avd Hackcessible_Pixel6
+3e. Run on Emulator
+npx cap run android       # From inside jaki/ or apps/caregiver/
+
+
+________________
+
+
+4. Node & Tooling Requirements
+Confirm these versions before starting:
+
+
+node --version    # Must be >=18
+
+
+npm --version     # Must be >=9
+
+
+npx cap --version # Capacitor CLI
+
+
+If Node is outdated:
+
+
+nvm install 20
+
+
+nvm use 20
+
+
+________________
+
+
+5. App-by-App Completion Tasks
+Session strategy for Claude Code:
+* Open one terminal per app — one Claude Code session per app
+* Always start each session with: claude --add-context brief.md
+* Run /compact every ~30 messages to preserve tokens
+* Never carry context from one app's session into another
+
+
+________________
+
+
+5a. Jaki — Caregiver Companion (ArthurOS)
+Start session from: cd jaki && claude
+
+
+Task 1 — Replace in-memory seed data with real Supabase backend
+
+
+Replace the fake data in data.ts with real Supabase queries.
+
+
+Use SUPABASE_URL and SUPABASE_ANON_KEY from .env.local.
+
+
+The tables are: users, events, locations, notifications.
+
+
+Use the supabase-js client. Add loading and error states to all data fetches.
+
+
+Task 2 — Auth (Jaki's login)
+
+
+Add Supabase Auth login screen for the caregiver (Jaki).
+
+
+Use email/password auth. On login, store the session token.
+
+
+Gate all data fetches behind the authenticated session.
+
+
+Task 3 — Replace fake map with real map
+
+
+Replace the mock map component with Google Maps (API key in .env.local as GOOGLE_MAPS_API_KEY).
+
+
+Show Arthur's real-time location from the locations table.
+
+
+Subscribe to Supabase realtime on the locations table and update the pin live.
+
+
+Task 4 — Real push notifications for SOS
+
+
+Wire Capacitor Push Notifications plugin to Firebase Cloud Messaging.
+
+
+google-services.json is already in android/app/.
+
+
+When an SOS event is inserted into the notifications table, trigger a push to Jaki's device.
+
+
+Use the FCM_SERVER_KEY from .env.local to send from the backend.
+
+
+Task 5 — Capacitor build
+
+
+Wire Capacitor for Android build.
+
+
+Run: npx cap sync android
+
+
+Fix any plugin compatibility issues.
+
+
+Confirm the app builds and runs on the Hackcessible_Pixel6 emulator.
+
+
+________________
+
+
+5b. Timekeeper / Caregiver (apps/caregiver)
+Start session from: cd m11/apps/caregiver && claude
+
+
+Task 1 — Remove isMock guard and connect production Supabase
+
+
+Find all isMock guards and demo banner UI components and remove them.
+
+
+Replace mock Supabase credentials with the real SUPABASE_URL and SUPABASE_ANON_KEY from .env.local.
+
+
+Confirm all data is flowing from the real database.
+
+
+Task 2 — Connect real watch firmware events
+
+
+The watch sends events to the events table in Supabase.
+
+
+Subscribe to Supabase Realtime on the events table.
+
+
+Display incoming events live in the caregiver dashboard.
+
+
+Task 3 — Capacitor push notifications
+
+
+Wire Capacitor Push Notifications plugin for this app as well.
+
+
+Use the same google-services.json from Firebase.
+
+
+Send a push notification to the caregiver when a new critical event arrives.
+
+
+________________
+
+
+5c. Laptop Monitor (apps/laptop-monitor)
+Start session from: cd m11/apps/laptop-monitor && claude
+
+
+Task 1 — Harden offline heartbeat sync
+
+
+The heartbeat sync currently fails silently when offline.
+
+
+Add a local queue (use electron-store) that buffers events while offline.
+
+
+When connectivity resumes, flush the queue to Supabase in order.
+
+
+Add a visible offline/online indicator in the UI.
+
+
+Task 2 — Auto-update (electron-updater)
+
+
+Add electron-updater to the project.
+
+
+Configure it to check GitHub Releases for updates on app launch.
+
+
+Add an update notification banner in the app UI when an update is available.
+
+
+The GitHub repo for releases is: [YOUR GITHUB REPO URL HERE]
+
+
+Task 3 — Code signing config (Mac)
+
+
+Add electron-builder notarization config to package.json.
+
+
+Use APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID from .env.local.
+
+
+Do not run the actual notarization — just configure it so the build script is ready.
+
+
+________________
+
+
+5d. Watch Simulator (apps/watch-simulator)
+Start session from: cd m11/apps/watch-simulator && claude
+
+
+This app is now a QA/testing tool only — it is not shipped to users.
+
+
+Task 1 — QA test scripts
+
+
+Write automated QA test scripts that simulate watch firmware events (from apps/firmware C code).
+
+
+The scripts should insert test events into the Supabase events table and verify they appear correctly in the caregiver app.
+
+
+Use the SUPABASE_SERVICE_ROLE_KEY for test data insertion.
+
+
+Task 2 — Update README
+
+
+Update README.md to clearly state:
+
+
+- This simulator is a QA/testing tool only
+
+
+- It is not shipped to end users
+
+
+- How to run the test scripts
+
+
+- What events can be simulated
+
+
+________________
+
+
+5e. Shared Packages Decision
+Before starting this session, decide:
+
+
+* If Jaki and M11 will share types → publish packages/schema and packages/supabase-client as private npm packages
+* If the two projects stay fully separate → skip publishing, keep as workspace-local only
+
+
+If publishing:
+
+
+Start session from: cd m11/packages/schema && claude
+
+
+Configure packages/schema and packages/supabase-client for private npm publishing.
+
+
+Add proper package.json with name @hackcessible/schema and @hackcessible/supabase-client.
+
+
+Add .npmrc using NPM_TOKEN from environment.
+
+
+Add a build step using tsup.
+
+
+Do not publish yet — just make the packages publishable.
+
+
+________________
+
+
+6. Git Workflow for the Team
+Every team member follows this before touching any file:
+
+
+git pull origin main          # Always pull first
+
+
+git checkout -b yourname/feature-name   # Work on your own branch
+
+
+# ... make changes with Claude Code ...
+
+
+git add .
+
+
+git commit -m "short description of what changed"
+
+
+git push origin yourname/feature-name
+
+
+Then open a Pull Request on GitHub and tag a teammate to review before merging to main.
+
+
+Branch naming convention:
+
+
+* austin/jaki-supabase
+* austin/timekeeper-mock-removal
+* yourname/laptop-monitor-offline
+
+
+Never push directly to main.
+
+
+________________
+
+
+7. Token Optimization Rules for Claude Code
+Follow these rules to stretch your remaining Claude token budget:
+
+
+1. One app per session. Never run Claude Code across multiple apps in the same session.
+2. Give exact file paths. Always tell Claude which file to edit: "Edit apps/caregiver/src/lib/supabase.ts" — this avoids file-search token burn.
+3. Run /compact every ~30 messages. This compresses conversation history and drops resolved context.
+4. Use Gemini for config and boilerplate. Anything that is "generate a standard config file" should go to Gemini Pro, not Claude Code.
+5. Paste errors directly. When something breaks, paste the exact terminal error — don't describe it. Claude resolves exact errors in fewer turns.
+6. Batch related tasks. Give Claude 2–3 related tasks in one message rather than one at a time. Example: "Remove isMock, connect real Supabase credentials, and remove the demo banner — all in one pass."
+7. End sessions cleanly. When a task is done, end the session (/exit) before starting the next app. Do not let sessions idle open.
+
+
+________________
+
+
+8. Tasks to Outsource to Gemini Pro
+Copy-paste these prompts directly into Gemini Pro to save Claude tokens:
+
+
+Google Maps / Mapbox config boilerplate:
+
+
+Generate a full capacitor.config.ts and AndroidManifest.xml patch to add Google Maps SDK for Android using API key from environment variable GOOGLE_MAPS_API_KEY. Project uses Capacitor 5 and React.
+
+
+FCM push notification config:
+
+
+Generate the complete @capacitor/push-notifications setup for a React + Capacitor 5 app on Android. Include the capacitor.config.ts entry, the AndroidManifest.xml changes, and the React hook to request permission and handle incoming notifications.
+
+
+Electron auto-update boilerplate:
+
+
+Generate electron-builder config in package.json for auto-update via GitHub Releases. Include the electron-updater setup in main.js that checks for updates on launch and shows an update notification. App name: Laptop Monitor.
+
+
+Mac notarization build script:
+
+
+Generate a GitHub Actions workflow that builds and notarizes an Electron app for macOS using APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID secrets.
+
+
+Watch Simulator QA test script:
+
+
+Generate a Node.js test script that inserts mock watch firmware events into a Supabase table called "events". The events should include: heart_rate, sos_trigger, battery_low, fall_detected. Use @supabase/supabase-js with SUPABASE_SERVICE_ROLE_KEY from environment.
+
+
+private npm package config:
+
+
+Generate a package.json and tsup.config.ts for a TypeScript package called @hackcessible/schema that exports Zod schemas and TypeScript types. It should build to both ESM and CJS.
+
+
+________________
+
+
+9. Definition of Done
+The project is complete when all of the following are true:
+
+
+* Jaki loads Arthur's real location from Supabase on a real map
+* Jaki receives real push notifications for SOS events on a physical or emulated Android device
+* Jaki login/auth works with real Supabase Auth
+* Timekeeper/Caregiver connects to production Supabase, isMock is fully removed
+* Timekeeper receives real watch firmware events via Supabase Realtime
+* Laptop Monitor recovers gracefully from offline — no data loss
+* Laptop Monitor build is configured for auto-update and Mac notarization
+* Watch Simulator README updated; QA scripts written and working
+* Both repos have clean main branches with no uncommitted changes
+* No .env.local or keystore files committed to GitHub (check with git log --all -- .env.local)
+
+
+________________
+
+
+
+
+Last updated: April 2026 — Hackcessible 2026, Group 1&2
