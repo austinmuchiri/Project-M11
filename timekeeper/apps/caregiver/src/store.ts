@@ -126,7 +126,7 @@ async function loadKidData() {
     console.log("📡 Fetching routines, events, etc...");
     const [routines, events, devices, alerts, heartbeat] = await Promise.all([
       getClient().routines(kid.id),
-      getClient().events(kid.id, Date.now() - 24 * 60 * 60 * 1000),
+      getClient().events(kid.id, Date.now() - 7 * 24 * 60 * 60 * 1000),
       getClient().devices(kid.id),
       getClient().alerts(kid.id),
       getClient().heartbeat(kid.id),
@@ -193,6 +193,21 @@ export async function addTaskToRoutine(routineId: string, task: Task) {
   set({ routines: state.routines.map(r => r.id === routineId ? { ...r, tasks } : r) });
   await getClient().updateRoutine(routineId, { tasks });
 }
+
+export async function deleteRoutine(routineId: string) {
+  set({ routines: state.routines.filter(r => r.id !== routineId) });
+  await getClient().deleteRoutine(routineId);
+}
+
+export async function deleteTaskFromRoutine(routineId: string, taskId: string) {
+  const r = state.routines.find(r => r.id === routineId);
+  if (!r) return;
+  const tasks = r.tasks.filter(t => t.id !== taskId);
+  set({ routines: state.routines.map(r => r.id === routineId ? { ...r, tasks } : r) });
+  await getClient().updateRoutine(routineId, { tasks });
+}
+
+
 
 export async function updateTaskInRoutine(routineId: string, taskId: string, patch: Partial<Task>) {
   const r = state.routines.find(r => r.id === routineId);
@@ -281,4 +296,31 @@ export function activeTask(s: State): ResolvedTask | null {
 
 export function unreadAlertCount(s: State): number {
   return s.alerts.filter(a => !a.read).length;
+}
+
+export function computeStreak(s: State): number {
+  const doneByDay = new Set<string>();
+  for (const ev of s.events) {
+    if (ev.status === 'done') doneByDay.add(new Date(ev.ts).toDateString());
+  }
+  let streak = 0;
+  const d = new Date();
+  while (doneByDay.has(d.toDateString())) {
+    streak++;
+    d.setDate(d.getDate() - 1);
+  }
+  return streak;
+}
+
+export function computeWeeklyStars(s: State): number {
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  let stars = 0;
+  for (const ev of s.events) {
+    if (ev.status !== 'done' || ev.ts < weekAgo) continue;
+    for (const r of s.routines) {
+      const task = r.tasks.find(t => t.id === ev.taskId);
+      if (task) { stars += task.rewardStars; break; }
+    }
+  }
+  return stars;
 }

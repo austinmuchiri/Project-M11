@@ -7,7 +7,8 @@ import {
 import type { Task, TaskIcon } from '@timekeeper/schema';
 import {
   useStore, resolveTodayTasks, toggleRoutineActive,
-  addTaskToRoutine, updateTaskInRoutine, createRoutine
+  addTaskToRoutine, updateTaskInRoutine, createRoutine,
+  deleteRoutine, deleteTaskFromRoutine,
 } from '../store.js';
 
 const TASK_ICONS: TaskIcon[] = [
@@ -15,11 +16,32 @@ const TASK_ICONS: TaskIcon[] = [
   'book', 'pencil', 'shower', 'school', 'play', 'star', 'dot',
 ];
 
-const PRESETS: { id: string; icon: IconName; color: string }[] = [
-  { id: 'morning', icon: 'sun',    color: APP.accent },
-  { id: 'school',  icon: 'school', color: APP.info },
-  { id: 'evening', icon: 'moon',   color: APP.chart4 },
+const ROUTINE_PRESET_ICONS: Record<string, { icon: IconName; color: string }> = {
+  morning:  { icon: 'sun',    color: APP.accent },
+  school:   { icon: 'school', color: APP.info },
+  evening:  { icon: 'moon',   color: APP.chart4 },
+  homework: { icon: 'pencil', color: APP.info },
+};
+
+const PRESET_TEMPLATES: { name: string; startTime: string; icon: IconName; color: string }[] = [
+  { name: 'Morning Routine', startTime: '07:00', icon: 'sun',    color: APP.accent },
+  { name: 'Homework Time',   startTime: '16:00', icon: 'pencil', color: APP.info },
+  { name: 'Evening Routine', startTime: '18:30', icon: 'moon',   color: APP.chart4 },
 ];
+
+function getRoutineVisual(routineId: string, routineName: string): { icon: IconName; color: string } {
+  const byId = ROUTINE_PRESET_ICONS[routineId];
+  if (byId) return byId;
+  const lower = routineName.toLowerCase();
+  if (lower.includes('morning')) return { icon: 'sun', color: APP.accent };
+  if (lower.includes('evening') || lower.includes('night')) return { icon: 'moon', color: APP.chart4 };
+  if (lower.includes('school') || lower.includes('homework')) return { icon: 'pencil', color: APP.info };
+  return { icon: 'dot', color: APP.brand };
+}
+
+function formatDay(): string {
+  return new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+}
 
 interface TaskDraft {
   label: string;
@@ -29,9 +51,16 @@ interface TaskDraft {
   rewardStars: number;
 }
 
+interface RoutineDraft {
+  name: string;
+  startTime: string;
+}
+
 const DEFAULT_DRAFT: TaskDraft = {
   label: '', icon: 'dot', scheduledTime: '08:00', expectedMinutes: 5, rewardStars: 1,
 };
+
+const DEFAULT_ROUTINE_DRAFT: RoutineDraft = { name: '', startTime: '07:00' };
 
 export function ScheduleScreen({ selectedId, onSelect }: {
   selectedId: string;
@@ -43,12 +72,24 @@ export function ScheduleScreen({ selectedId, onSelect }: {
   const selected = routines.find(r => r.id === selectedId) ?? routines[0];
   const selectedTasks = tasks.filter(t => t.routineId === selected?.id);
 
-  // modal state: null = closed, undefined = add new, string = edit existing task ID
-  const [editingTaskId, setEditingTaskId] = useState<string | null | undefined>(null);
-  const [draft, setDraft] = useState<TaskDraft>(DEFAULT_DRAFT);
-  const [syncToast, setSyncToast] = useState(false);
+  // Task modal: null = closed, undefined = add new, string = edit existing
+  const [editingTaskId, setEditingTaskId]     = useState<string | null | undefined>(null);
+  const [draft, setDraft]                     = useState<TaskDraft>(DEFAULT_DRAFT);
+  const [syncToast, setSyncToast]             = useState(false);
+  const [noRoutineWarning, setNoRoutineWarning] = useState(false);
+  const [deletingRoutineId, setDeletingRoutineId] = useState<string | null>(null);
+
+  // Routine modal
+  const [isRoutineModalOpen, setIsRoutineModalOpen] = useState(false);
+  const [routineDraft, setRoutineDraft]             = useState<RoutineDraft>(DEFAULT_ROUTINE_DRAFT);
 
   const openAdd = () => {
+    if (routines.length === 0) {
+      setNoRoutineWarning(true);
+      setTimeout(() => setNoRoutineWarning(false), 3000);
+      return;
+    }
+    setNoRoutineWarning(false);
     setDraft(DEFAULT_DRAFT);
     setEditingTaskId(undefined);
   };
@@ -92,56 +133,130 @@ export function ScheduleScreen({ selectedId, onSelect }: {
     closeModal();
   };
 
+  const handleDeleteTask = async (taskId: string) => {
+    if (!selected) return;
+    await deleteTaskFromRoutine(selected.id, taskId);
+    closeModal();
+  };
+
   const onSync = () => {
     setSyncToast(true);
     setTimeout(() => setSyncToast(false), 2500);
   };
 
-  const modalOpen = editingTaskId !== null;
-
-  // Inside ScheduleScreen function
-  const [isRoutineModalOpen, setIsRoutineModalOpen] = useState(false);
-  const [newRoutineName, setNewRoutineName] = useState('');
-
-  const openCreateRoutine = () => {
-    setNewRoutineName('');
+  const openCreateRoutine = (preset?: { name: string; startTime: string }) => {
+    setRoutineDraft(preset ?? DEFAULT_ROUTINE_DRAFT);
     setIsRoutineModalOpen(true);
   };
 
   const handleCreateRoutine = async () => {
-    if (!newRoutineName.trim()) return;
-    
+    if (!routineDraft.name.trim()) return;
     const routineId = `routine-${Date.now()}`;
     await createRoutine({
       id: routineId,
-      name: newRoutineName.trim(),
-      startTime: '08:00', // Default start time
+      name: routineDraft.name.trim(),
+      startTime: routineDraft.startTime,
     });
-    
     setIsRoutineModalOpen(false);
-    onSelect(routineId); // Select the new routine so the user can see it
+    onSelect(routineId);
   };
+
+  const handleDeleteRoutine = async (routineId: string) => {
+    await deleteRoutine(routineId);
+    setDeletingRoutineId(null);
+    if (selectedId === routineId) {
+      const remaining = routines.filter(r => r.id !== routineId);
+      if (remaining.length > 0) onSelect(remaining[0]!.id);
+    }
+  };
+
+  const modalOpen = editingTaskId !== null;
 
   return (
     <>
       <div style={{ padding: '0 16px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <SectionTitle action={<span onClick={openCreateRoutine} style={{ cursor: 'pointer' }}>+ New</span>}>
-          Preset routines
+
+        {/* Date header */}
+        <div style={{ fontSize: 12, color: APP.inkDim, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.2, paddingTop: 4 }}>
+          {formatDay()}
+        </div>
+
+        {/* Section header + New button */}
+        <SectionTitle action={
+          <button
+            onClick={() => openCreateRoutine()}
+            style={{
+              height: 34, paddingInline: 14, borderRadius: 9,
+              border: `1.5px solid ${APP.brand}`, background: APP.brandSoft,
+              color: APP.brand, fontFamily: APP.font, fontWeight: 800,
+              fontSize: 13, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 5,
+            }}
+          >
+            <AppIcon name="plus" size={12} color={APP.brand}/>
+            New
+          </button>
+        }>
+          Routines
         </SectionTitle>
+
+        {/* Preset quick-add strip */}
+        {routines.length === 0 && (
+          <div style={{
+            padding: '12px 14px', borderRadius: 12,
+            background: APP.brandSoft, border: `1px dashed ${APP.brand}55`,
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: APP.brand, marginBottom: 10 }}>
+              No routines yet — start with a preset:
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {PRESET_TEMPLATES.map(p => (
+                <button key={p.name} onClick={() => openCreateRoutine(p)} style={{
+                  height: 32, paddingInline: 12, borderRadius: 8,
+                  border: `1.5px solid ${p.color}`, background: p.color + '18',
+                  color: p.color, fontFamily: APP.font, fontWeight: 700,
+                  fontSize: 12, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  <IconBadge name={p.icon} color={p.color} size={20} iconSize={10}/>
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Routine cards grid */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           {routines.map(r => {
-            const preset = PRESETS.find(p => p.id === r.id) ?? { icon: 'dot' as IconName, color: APP.brand };
+            const visual = getRoutineVisual(r.id, r.name);
             const on = r.id === selectedId;
             return (
               <Card key={r.id} padding={12} onClick={() => onSelect(r.id)} style={{
-                border: `1.5px solid ${on ? preset.color : APP.border}`,
-                background: on ? preset.color + '12' : APP.surface,
+                border: `1.5px solid ${on ? visual.color : APP.border}`,
+                background: on ? visual.color + '12' : APP.surface,
+                position: 'relative',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <IconBadge name={preset.icon} color={preset.color} size={32} iconSize={16}/>
-                  <Toggle on={r.active} onChange={() => { void toggleRoutineActive(r.id); }}/>
+                  <IconBadge name={visual.icon} color={visual.color} size={32} iconSize={16}/>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div onClick={e => e.stopPropagation()}>
+                    <Toggle on={r.active} onChange={() => { void toggleRoutineActive(r.id); }}/>
+                  </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setDeletingRoutineId(r.id); }}
+                      aria-label="Delete routine"
+                      style={{
+                        width: 26, height: 26, borderRadius: 7, border: 'none',
+                        background: APP.surfaceAlt, cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}
+                    >
+                      <AppIcon name="x" size={11} color={APP.inkDim}/>
+                    </button>
+                  </div>
                 </div>
-                <div style={{ marginTop: 10, fontFamily: APP.fontDisp, fontSize: 16, fontWeight: 800, color: APP.ink }}>
+                <div style={{ marginTop: 10, fontFamily: APP.fontDisp, fontSize: 15, fontWeight: 800, color: APP.ink }}>
                   {r.name}
                 </div>
                 <div style={{ fontSize: 11, color: APP.inkDim, marginTop: 2, fontFamily: APP.fontMono }}>
@@ -155,11 +270,58 @@ export function ScheduleScreen({ selectedId, onSelect }: {
           })}
         </div>
 
+        {/* Delete routine confirmation */}
+        {deletingRoutineId && (() => {
+          const r = routines.find(r => r.id === deletingRoutineId);
+          return r ? (
+            <div style={{
+              padding: '12px 14px', borderRadius: 12,
+              background: APP.accentSoft, border: `1px solid ${APP.accent}55`,
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <div style={{ flex: 1, fontSize: 13, color: APP.ink, fontWeight: 600 }}>
+                Delete <strong>{r.name}</strong> and all its tasks?
+              </div>
+              <button onClick={() => setDeletingRoutineId(null)} style={ghostBtn}>Cancel</button>
+              <button onClick={() => { void handleDeleteRoutine(deletingRoutineId); }} style={{
+                ...ghostBtn, color: APP.accent, border: `1.5px solid ${APP.accent}`,
+              }}>Delete</button>
+            </div>
+          ) : null;
+        })()}
+
+        {/* Tasks section */}
         <SectionTitle action={
-          <span onClick={openAdd} style={{ cursor: 'pointer' }}>+ Add task</span>
+          <button
+            onClick={openAdd}
+            style={{
+              height: 34, paddingInline: 14, borderRadius: 9,
+              border: `1.5px solid ${APP.border}`, background: APP.surfaceAlt,
+              color: APP.ink, fontFamily: APP.font, fontWeight: 800,
+              fontSize: 13, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 5,
+            }}
+          >
+            <AppIcon name="plus" size={12} color={APP.ink2}/>
+            Add task
+          </button>
         }>
-          Tasks · {selected?.name}
+          Tasks · {selected?.name ?? 'select a routine'}
         </SectionTitle>
+
+        {/* No-routine warning */}
+        {noRoutineWarning && (
+          <div style={{
+            padding: '10px 14px', borderRadius: 10,
+            background: APP.accentSoft, border: `1px solid ${APP.accent}55`,
+            color: APP.accent, fontWeight: 700, fontSize: 13,
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            <AppIcon name="x" size={13} color={APP.accent}/>
+            Create a routine first before adding tasks.
+          </div>
+        )}
+
         <Card padding={0}>
           {selectedTasks.map((t, i, arr) => {
             const isLast = i === arr.length - 1;
@@ -175,8 +337,7 @@ export function ScheduleScreen({ selectedId, onSelect }: {
                 <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', width: 14 }}>
                   {i !== 0 && <div style={{ position: 'absolute', top: -12, height: 16, width: 1.5, background: APP.borderStrong }}/>}
                   <div style={{
-                    width: 12, height: 12, borderRadius: '50%',
-                    background: dotColor,
+                    width: 12, height: 12, borderRadius: '50%', background: dotColor,
                     border: t.status === 'pending' ? `1.5px solid ${APP.borderStrong}` : 'none',
                     boxShadow: t.status === 'active' ? `0 0 0 4px ${APP.accentSoft}` : 'none',
                   }}/>
@@ -209,7 +370,9 @@ export function ScheduleScreen({ selectedId, onSelect }: {
           })}
           {selectedTasks.length === 0 && (
             <div style={{ padding: '24px 0', textAlign: 'center', color: APP.inkDim, fontSize: 13 }}>
-              No tasks yet — tap "+ Add task" to create one
+              {routines.length === 0
+                ? 'Create a routine above, then add tasks here.'
+                : 'No tasks yet — tap "Add task" to create one.'}
             </div>
           )}
         </Card>
@@ -226,22 +389,26 @@ export function ScheduleScreen({ selectedId, onSelect }: {
         )}
 
         <div style={{ display: 'flex', gap: 10 }}>
-          <Btn variant="secondary" icon={<AppIcon name="plus" size={14}/>} full onClick={openAdd}>Add task</Btn>
-          <Btn variant="primary"   icon={<AppIcon name="refresh" size={14} color="#fff"/>} full onClick={onSync}>Sync to watch</Btn>
+          <Btn variant="secondary" icon={<AppIcon name="plus" size={14}/>} full onClick={openAdd}>
+            Add task
+          </Btn>
+          <Btn variant="primary" icon={<AppIcon name="refresh" size={14} color="#fff"/>} full onClick={onSync}>
+            Sync to watch
+          </Btn>
         </div>
       </div>
 
-      {/* Routine modal — bottom sheet */}
+      {/* Routine modal */}
       {isRoutineModalOpen && (
         <RoutineModal
-          name={newRoutineName}
-          setName={setNewRoutineName}
+          draft={routineDraft}
+          onChange={setRoutineDraft}
           onCancel={() => setIsRoutineModalOpen(false)}
           onSave={handleCreateRoutine}
         />
       )}
 
-      {/* Task Modal */}
+      {/* Task modal */}
       {modalOpen && (
         <TaskModal
           draft={draft}
@@ -249,29 +416,32 @@ export function ScheduleScreen({ selectedId, onSelect }: {
           onSave={() => { void saveTask(); }}
           onCancel={closeModal}
           isEdit={typeof editingTaskId === 'string'}
+          onDelete={typeof editingTaskId === 'string' ? () => { void handleDeleteTask(editingTaskId as string); } : undefined}
         />
       )}
     </>
   );
 }
-function RoutineModal({ 
-  name, 
-  setName, 
-  onSave, 
-  onCancel 
-}: { 
-  name: string; 
-  setName: (s: string) => void; 
-  onSave: () => void; 
-  onCancel: () => void; 
+
+function RoutineModal({
+  draft,
+  onChange,
+  onSave,
+  onCancel,
+}: {
+  draft: RoutineDraft;
+  onChange: (d: RoutineDraft) => void;
+  onSave: () => void;
+  onCancel: () => void;
 }) {
-  const valid = name.trim().length > 0;
+  const set = (patch: Partial<RoutineDraft>) => onChange({ ...draft, ...patch });
+  const valid = draft.name.trim().length > 0;
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, zIndex: 110, // Higher than task modal
+      position: 'fixed', inset: 0, zIndex: 110,
       background: 'rgba(31,46,39,0.45)', backdropFilter: 'blur(4px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
     }}>
       <div style={{
         width: '100%', maxWidth: 400, background: APP.surface,
@@ -281,24 +451,42 @@ function RoutineModal({
           Create Routine
         </div>
 
-        <FieldLabel>Routine Name</FieldLabel>
+        {/* Preset strip */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+          {PRESET_TEMPLATES.map(p => (
+            <button key={p.name} onClick={() => set({ name: p.name, startTime: p.startTime })} style={{
+              height: 28, paddingInline: 10, borderRadius: 7,
+              border: `1.5px solid ${draft.name === p.name ? p.color : APP.border}`,
+              background: draft.name === p.name ? p.color + '18' : APP.surfaceAlt,
+              color: draft.name === p.name ? p.color : APP.ink2,
+              fontFamily: APP.font, fontWeight: 700, fontSize: 11, cursor: 'pointer',
+            }}>
+              {p.name}
+            </button>
+          ))}
+        </div>
+
+        <FieldLabel>Routine name</FieldLabel>
         <input
           autoFocus
-          value={name}
-          onChange={e => setName(e.target.value)}
+          value={draft.name}
+          onChange={e => set({ name: e.target.value })}
           placeholder="e.g. Morning Routine"
-          style={{
-            width: '100%', height: 48, borderRadius: 10, padding: '0 12px',
-            border: `1.5px solid ${APP.borderStrong}`, fontFamily: APP.font,
-            fontSize: 15, fontWeight: 600, color: APP.ink, background: APP.surface,
-            boxSizing: 'border-box', outline: 'none', marginBottom: 24
-          }}
+          style={inputStyle}
         />
 
-        <div style={{ display: 'flex', gap: 10 }}>
+        <FieldLabel style={{ marginTop: 14 }}>Start time</FieldLabel>
+        <input
+          type="time"
+          value={draft.startTime}
+          onChange={e => set({ startTime: e.target.value })}
+          style={{ ...inputStyle, fontFamily: APP.fontMono }}
+        />
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
           <Btn variant="secondary" full onClick={onCancel}>Cancel</Btn>
           <Btn variant="primary" full onClick={onSave} style={{ opacity: valid ? 1 : 0.45 }}>
-            Create & Add Tasks
+            Create &amp; Add Tasks
           </Btn>
         </div>
       </div>
@@ -306,12 +494,13 @@ function RoutineModal({
   );
 }
 
-function TaskModal({ draft, onChange, onSave, onCancel, isEdit }: {
+function TaskModal({ draft, onChange, onSave, onCancel, isEdit, onDelete }: {
   draft: TaskDraft;
   onChange: (d: TaskDraft) => void;
   onSave: () => void;
   onCancel: () => void;
   isEdit: boolean;
+  onDelete?: () => void;
 }) {
   const set = (patch: Partial<TaskDraft>) => onChange({ ...draft, ...patch });
   const valid = draft.label.trim().length > 0;
@@ -333,13 +522,27 @@ function TaskModal({ draft, onChange, onSave, onCancel, isEdit }: {
           <div style={{ fontFamily: APP.fontDisp, fontWeight: 800, fontSize: 20, color: APP.ink }}>
             {isEdit ? 'Edit task' : 'New task'}
           </div>
-          <button onClick={onCancel} aria-label="Close" style={{
-            width: 32, height: 32, borderRadius: 16, border: 'none',
-            background: APP.bgSoft, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <AppIcon name="x" size={14} color={APP.ink2}/>
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {isEdit && onDelete && (
+              <button onClick={onDelete} aria-label="Delete task" style={{
+                height: 32, paddingInline: 12, borderRadius: 8,
+                border: `1.5px solid ${APP.accent}`, background: APP.accentSoft,
+                cursor: 'pointer', fontFamily: APP.font,
+                fontSize: 12, fontWeight: 700, color: APP.accent,
+                display: 'flex', alignItems: 'center', gap: 5,
+              }}>
+                <AppIcon name="x" size={11} color={APP.accent}/>
+                Delete
+              </button>
+            )}
+            <button onClick={onCancel} aria-label="Close" style={{
+              width: 32, height: 32, borderRadius: 16, border: 'none',
+              background: APP.bgSoft, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <AppIcon name="x" size={14} color={APP.ink2}/>
+            </button>
+          </div>
         </div>
 
         {/* label */}
@@ -350,12 +553,7 @@ function TaskModal({ draft, onChange, onSave, onCancel, isEdit }: {
           onChange={e => set({ label: e.target.value })}
           placeholder="e.g. Brush Teeth"
           maxLength={40}
-          style={{
-            width: '100%', height: 44, borderRadius: 10, padding: '0 12px',
-            border: `1.5px solid ${APP.borderStrong}`, fontFamily: APP.font,
-            fontSize: 14, fontWeight: 600, color: APP.ink, background: APP.surface,
-            boxSizing: 'border-box', outline: 'none',
-          }}
+          style={inputStyle}
         />
 
         {/* icon picker */}
@@ -372,7 +570,7 @@ function TaskModal({ draft, onChange, onSave, onCancel, isEdit }: {
           ))}
         </div>
 
-        {/* time */}
+        {/* time + duration */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 16 }}>
           <div>
             <FieldLabel>Scheduled time</FieldLabel>
@@ -380,12 +578,7 @@ function TaskModal({ draft, onChange, onSave, onCancel, isEdit }: {
               type="time"
               value={draft.scheduledTime}
               onChange={e => set({ scheduledTime: e.target.value })}
-              style={{
-                width: '100%', height: 44, borderRadius: 10, padding: '0 12px',
-                border: `1.5px solid ${APP.borderStrong}`, fontFamily: APP.fontMono,
-                fontSize: 14, fontWeight: 700, color: APP.ink, background: APP.surface,
-                boxSizing: 'border-box', outline: 'none',
-              }}
+              style={{ ...inputStyle, fontFamily: APP.fontMono }}
             />
           </div>
           <div>
@@ -395,12 +588,7 @@ function TaskModal({ draft, onChange, onSave, onCancel, isEdit }: {
               min={1} max={180}
               value={draft.expectedMinutes}
               onChange={e => set({ expectedMinutes: Math.max(1, Math.min(180, Number(e.target.value))) })}
-              style={{
-                width: '100%', height: 44, borderRadius: 10, padding: '0 12px',
-                border: `1.5px solid ${APP.borderStrong}`, fontFamily: APP.fontMono,
-                fontSize: 14, fontWeight: 700, color: APP.ink, background: APP.surface,
-                boxSizing: 'border-box', outline: 'none',
-              }}
+              style={{ ...inputStyle, fontFamily: APP.fontMono }}
             />
           </div>
         </div>
@@ -437,9 +625,23 @@ function FieldLabel({ children, style }: { children: React.ReactNode; style?: Re
   );
 }
 
+const inputStyle: React.CSSProperties = {
+  width: '100%', height: 44, borderRadius: 10, padding: '0 12px',
+  border: `1.5px solid ${APP.borderStrong}`, fontFamily: APP.font,
+  fontSize: 14, fontWeight: 600, color: APP.ink, background: APP.surface,
+  boxSizing: 'border-box', outline: 'none',
+};
+
 const stepperBtn: React.CSSProperties = {
   width: 40, height: 40, borderRadius: 10, border: `1.5px solid ${APP.borderStrong}`,
   background: APP.surfaceAlt, cursor: 'pointer', fontFamily: APP.font,
   fontSize: 20, fontWeight: 700, color: APP.ink,
   display: 'flex', alignItems: 'center', justifyContent: 'center',
+};
+
+const ghostBtn: React.CSSProperties = {
+  height: 30, paddingInline: 12, borderRadius: 8,
+  border: `1.5px solid ${APP.border}`, background: 'transparent',
+  color: APP.ink2, fontFamily: APP.font, fontWeight: 700,
+  fontSize: 12, cursor: 'pointer',
 };

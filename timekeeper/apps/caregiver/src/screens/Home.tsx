@@ -3,17 +3,21 @@ import {
   APP, AppIcon, Card, IconBadge, MiniWatchFace, Pill, RingGauge,
   StatusDot, TASK_ICON, type IconName,
 } from '@timekeeper/ui';
-import { useStore, resolveTodayTasks, activeTask, lockLaptop, unlockLaptop, blockApp } from '../store';
+import { useStore, resolveTodayTasks, activeTask, lockLaptop, unlockLaptop,
+   blockApp, computeStreak, computeWeeklyStars } from '../store';
 
 export function HomeScreen({ onNudge, onSchedule }: {
   onNudge: () => void;
   onSchedule: () => void;
 }) {
-  const heartbeat = useStore(s => s.heartbeat);
-  const devices   = useStore(s => s.devices);
-  const tasks     = useStore(resolveTodayTasks);
-  const active    = useStore(activeTask);
-  const routines  = useStore(s => s.routines);
+  const heartbeat  = useStore(s => s.heartbeat);
+  const devices    = useStore(s => s.devices);
+  const tasks      = useStore(resolveTodayTasks);
+  const active     = useStore(activeTask);
+  const routines   = useStore(s => s.routines);
+  const kid        = useStore(s => s.kid);
+  const streak     = useStore(computeStreak);
+  const weekStars  = useStore(computeWeeklyStars);
 
   const watch = devices.find(d => d.kind === 'watch');
   const elapsed = active?.startedAt ? Math.floor((Date.now() - active.startedAt) / 1000) : 132;
@@ -32,6 +36,31 @@ export function HomeScreen({ onNudge, onSchedule }: {
 
   return (
     <div style={{ padding: '0 16px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+          {/* Kid profile */}
+      <Card padding={14}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{
+            width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
+            background: kid.avatarColor,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <span style={{ fontSize: 18, fontWeight: 800, color: '#fff' }}>{kid.initials}</span>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: APP.fontDisp, fontSize: 18, fontWeight: 800, color: APP.ink }}>
+              {kid.name}
+            </div>
+            <div style={{ fontSize: 12, color: APP.inkDim, marginTop: 1 }}>{kid.age} yrs old</div>
+          </div>
+          <div style={{
+            fontSize: 10, fontWeight: 800, letterSpacing: 1.1, textTransform: 'uppercase',
+            color: APP.brand, background: APP.brandSoft, borderRadius: 6, padding: '3px 8px',
+          }}>
+            Caregiver view
+          </div>
+        </div>
+      </Card>
 
       {/* Live status hero */}
       <div style={{
@@ -219,8 +248,8 @@ export function HomeScreen({ onNudge, onSchedule }: {
 
       {/* Quick stats row */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <StatCard icon="flame" iconColor={APP.accent} label="Streak" value={12} suffix="days"/>
-        <StatCard icon="star" iconColor={APP.star}    label="Stars · wk" value={23}/>
+        <StatCard icon="flame" iconColor={APP.accent} label="Streak" value={streak} suffix="days"/>
+        <StatCard icon="star" iconColor={APP.star}    label="Stars · wk" value={weekStars}/>
       </div>
     </div>
   );

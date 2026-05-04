@@ -51,7 +51,8 @@ export interface TimekeeperClient {
   heartbeat(kidId: string): Promise<LaptopHeartbeat | null>;
 
   createRoutine(routine: Routine): Promise<void>;
-  updateRoutine(routineId: string, patch: { active?: boolean; tasks?: Routine['tasks'] }): Promise<void>;
+  updateRoutine(routineId: string, patch: { active?: boolean; tasks?: Routine['tasks']; name?: string; startTime?: string }): Promise<void>;
+  deleteRoutine(routineId: string): Promise<void>;
   recordEvent(ev: TaskEvent): Promise<void>;
   sendNudge(n: Nudge): Promise<void>;
   pushHeartbeat(h: LaptopHeartbeat): Promise<void>;
@@ -179,11 +180,18 @@ class SupabaseImpl implements TimekeeperClient {
     if (error) throw error;
   }
 
-  async updateRoutine(routineId: string, patch: { active?: boolean; tasks?: Routine['tasks'] }): Promise<void> {
+  async updateRoutine(routineId: string, patch: { active?: boolean; tasks?: Routine['tasks']; name?: string; startTime?: string }): Promise<void> {
     const row: Record<string, unknown> = {};
     if (patch.active !== undefined) row.active = patch.active;
     if (patch.tasks !== undefined) row.tasks = patch.tasks;
+    if (patch.name !== undefined) row.name = patch.name;
+    if (patch.startTime !== undefined) row.start_time = patch.startTime;
     const { error } = await this.sb.from('routines').update(row).eq('id', routineId);
+    if (error) throw error;
+  }
+
+  async deleteRoutine(routineId: string): Promise<void> {
+    const { error } = await this.sb.from('routines').delete().eq('id', routineId);
     if (error) throw error;
   }
 
@@ -324,10 +332,14 @@ class MockImpl implements TimekeeperClient {
     this.routinesStore.push(r);
   }
 
-  async updateRoutine(routineId: string, patch: { active?: boolean; tasks?: Routine['tasks'] }) {
+  async updateRoutine(routineId: string, patch: { active?: boolean; tasks?: Routine['tasks']; name?: string; startTime?: string }) {
     this.routinesStore = this.routinesStore.map(r =>
       r.id === routineId ? { ...r, ...patch } : r
     );
+  }
+
+  async deleteRoutine(routineId: string) {
+    this.routinesStore = this.routinesStore.filter(r => r.id !== routineId);
   }
 
   async recordEvent(ev: TaskEvent) {
