@@ -1,30 +1,26 @@
-# Development Context: Timekeeper App (Supabase Integration)
+# Development Context: Timekeeper App (Supabase Integration) - v2
 
 ## 1. Project Status Summary
-We have successfully migrated the core infrastructure from a Mock-based system to a live **Supabase** backend. The authentication flow, schema synchronization, and client factory logic are now operational. The application uses a custom store (Zustand-like pattern) for state management.
+The migration from Mock-based systems to a live **Supabase** backend is progressing. Core authentication, schema synchronization, and client factory logic are operational. Recent updates have successfully transitioned the **Home Screen** and **Schedule Screen** to dynamic data.
 
 ## 2. Technical Foundation
 - **Backend:** Supabase (Auth, PostgreSQL, Realtime).
 - **Frontend:** React + Vite + TypeScript.
 - **Client Logic:** `createTimekeeperClient` acts as the bridge.
-- **Current State:** The app bootstraps correctly, but several UI components are still consuming hardcoded "Mock" values or lack functional event handlers.
+- **State Management:** Custom store (Zustand-like pattern).
 
-## 3. High-Priority Gaps for Implementation
+## 3. Completed Implementations
+- **Dynamic Home Screen:** The profile section now fetches and displays real-time kid names, ages, and streak data from the database.
+- **Functional Scheduling:** The Schedule Screen now supports CRUD operations for Routines and Tasks. Date headers are dynamic, buttons have been resized for accessibility, and modals self-close upon successful actions.
 
-### A. Home Screen & Focus Logic
-- **Dynamic Profile:** Replace static "Munene, 8yrs" and hardcoded Streaks/Stars with real data from the `kids` table.
-- **Connection Awareness:** Implement a check for laptop connectivity status before enabling/disabling "Focus" blocks.
+## 4. Remaining High-Priority Gaps
 
-### B. Scheduling System (Critical)
-- **Routine Management:**
-    - Implement the ability to create, delete, and list Routines.
-    - Add "Preset Routines" (e.g., Morning Routine, Homework Time).
-    - **Constraint:** Block task creation if no routine is active.
-- **Task Management:** Implement adding and deleting tasks.
-- **UI/UX:**
-    - Make '+New' and 'Add Task' buttons larger/more accessible.
-    - Ensure modals (`addTask`, `addRoutine`) close automatically on success.
-    - Make the date header dynamic to show the current day.
+### A. Focus Logic & Connection
+- **Connection Awareness:** Implement a functional check for laptop connectivity status before enabling/disabling "Focus" blocks.
+
+### B. Scheduling System Refinements
+- **Preset Routines:** Add logic for "Preset Routines" (e.g., Morning Routine, Homework Time) to the creation flow.
+- **Validation:** Enforce the constraint to block task creation if no routine is currently active.
 
 ### C. Insights & Rewards
 - **Data Hydration:** Replace mock data in the Insights dashboard and Rewards page with live database queries.
@@ -32,13 +28,14 @@ We have successfully migrated the core infrastructure from a Mock-based system t
 
 ### D. Settings & Alerts
 - **Persistence:** Allow users to change "Quiet Hours" and ensure settings persist to the database.
-- **Connectivity:** Implement the "Pair device" button logic.
+- **Device Pairing:** Implement "Pair device" logic. **New Requirement:** The system must distinguish between device types (specifically **Watch** vs. **Laptop**) during the pairing process.
 - **Dynamic Rules:** Ensure alert rules (like "Miss-rule") update in real-time when settings are modified.
 
-## 4. Prompt for Implementation
-> "Using the provided context, please implement the missing logic for the **Schedule Screen** and **Home Screen**. 
-> 
-> 1. Update the **Home Screen** to fetch and display the actual kid's name, age, and streak data from Supabase.
-> 2. On the **Schedule Screen**, implement the CRUD logic for Routines and Tasks using the `createTimekeeperClient`. Ensure the '+New' and 'Add Task' buttons are enlarged, modals self-close on save, and a 'Delete' option is added for both.
-> 3. Implement a check to ensure a routine exists before a task can be added.
-> 4. Ensure all state updates are reflected in the custom store."
+## 5. Prompt for Implementation
+> "Using the provided context, please implement the remaining missing logic for the **Insights**, **Rewards**, and **Settings** screens.
+>
+> 1. **Insights & Rewards:** Replace all remaining mock data with live queries from Supabase. Enable functional 'Export' (Insights) and '+New' (Rewards) buttons.
+> 2. **Settings Persistence:** Implement database persistence for 'Quiet Hours' and ensure real-time updates for alert rules.
+> 3. **Device Pairing:** Implement the 'Pair new device' workflow. Ensure the logic can distinguish and store the device type specifically as either a 'Watch' or a 'Laptop'.
+> 4. **Logic Guards:** Implement a check to ensure a routine exists before allowing task additions and implement connection awareness for laptop-dependent Focus blocks.
+> 5. **State Sync:** Ensure all remaining UI interactions correctly update the custom store and reflect the live database state."
