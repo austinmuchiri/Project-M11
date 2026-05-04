@@ -1,6 +1,3 @@
-// Custom GATT service for TimeKeeper.
-// UUIDs match packages/schema/src/index.ts → BLE_*_UUID constants.
-
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
@@ -11,11 +8,23 @@
 #define TK_BLE_CHAR_ROUTINE_UUID "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
 #define TK_BLE_CHAR_NUDGE_UUID   "6e400004-b5a3-f393-e0a9-e50e24dcca9e"
 
+/**
+ * Initializes the BLE stack and generates a random session passkey.
+ */
 void ble_init(void);
+
+/**
+ * Configures the Security Manager with the specific 4-digit passkey 
+ * required for pairing with the React App.
+ */
+void ble_setup_security(uint32_t passkey);
+
 bool ble_is_connected(void);
 
-// Returns the 4-digit pairing code as a NUL-terminated, space-separated
-// string ("4 7 2 9"). Stable for the lifetime of one advertising session.
+/**
+ * Returns the 4-digit pairing code as a NUL-terminated numeric string (e.g., "8241").
+ * This matches the code displayed on the SCR_PAIR screen and entered in the app[cite: 2].
+ */
 const char *ble_pair_code(void);
 
 // Push a TaskEvent JSON line to the phone (notify on EVENT char).

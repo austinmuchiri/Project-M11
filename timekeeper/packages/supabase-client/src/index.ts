@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type {
-  Routine, TaskEvent, Device, Alert, LaptopHeartbeat, Nudge, BlockCommand,
+  Routine, TaskEvent, Device, Alert, LaptopHeartbeat, Nudge, BlockCommand, DeviceKind,
 } from '@timekeeper/schema';
 import {
   MOCK_ROUTINES, MOCK_DEVICES, MOCK_ALERTS, MOCK_EVENTS_TODAY,
@@ -29,6 +29,28 @@ export interface KidProfile {
   avatarColor: string;
 }
 
+export interface KidSettings {
+  missThreshold: number;
+  quietHours: boolean;
+  quietStart: string;
+  quietEnd: string;
+  escalateNanny: boolean;
+  hapticOnly: boolean;
+  lockOnTask: boolean;
+  blockGames: boolean;
+}
+
+export const DEFAULT_KID_SETTINGS: KidSettings = {
+  missThreshold: 3,
+  quietHours: true,
+  quietStart: '21:00',
+  quietEnd: '07:00',
+  escalateNanny: true,
+  hapticOnly: false,
+  lockOnTask: false,
+  blockGames: false,
+};
+
 export interface TimekeeperClient {
   isMock: boolean;
 
@@ -49,6 +71,10 @@ export interface TimekeeperClient {
   devices(kidId: string): Promise<Device[]>;
   alerts(kidId: string): Promise<Alert[]>;
   heartbeat(kidId: string): Promise<LaptopHeartbeat | null>;
+
+  getSettings(kidId: string): Promise<KidSettings>;
+  saveSettings(kidId: string, patch: Partial<KidSettings>): Promise<void>;
+  createDevice(d: { kidId: string; kind: DeviceKind; label: string }): Promise<Device>;
 
   createRoutine(routine: Routine): Promise<void>;
   updateRoutine(routineId: string, patch: { active?: boolean; tasks?: Routine['tasks']; name?: string; startTime?: string }): Promise<void>;
@@ -166,6 +192,50 @@ class SupabaseImpl implements TimekeeperClient {
     return data ? rowToHeartbeat(data) : null;
   }
 
+  async getSettings(kidId: string): Promise<KidSettings> {
+    try {
+      const { data } = await this.sb.from('kid_settings').select('*').eq('kid_id', kidId).maybeSingle();
+      if (!data) return { ...DEFAULT_KID_SETTINGS };
+      return {
+        missThreshold:  data.miss_threshold  ?? DEFAULT_KID_SETTINGS.missThreshold,
+        quietHours:     data.quiet_hours     ?? DEFAULT_KID_SETTINGS.quietHours,
+        quietStart:     data.quiet_start     ?? DEFAULT_KID_SETTINGS.quietStart,
+        quietEnd:       data.quiet_end       ?? DEFAULT_KID_SETTINGS.quietEnd,
+        escalateNanny:  data.escalate_nanny  ?? DEFAULT_KID_SETTINGS.escalateNanny,
+        hapticOnly:     data.haptic_only     ?? DEFAULT_KID_SETTINGS.hapticOnly,
+        lockOnTask:     data.lock_on_task    ?? DEFAULT_KID_SETTINGS.lockOnTask,
+        blockGames:     data.block_games     ?? DEFAULT_KID_SETTINGS.blockGames,
+      };
+    } catch { return { ...DEFAULT_KID_SETTINGS }; }
+  }
+
+  async saveSettings(kidId: string, patch: Partial<KidSettings>): Promise<void> {
+    try {
+      const row: Record<string, unknown> = { kid_id: kidId };
+      if (patch.missThreshold !== undefined) row.miss_threshold = patch.missThreshold;
+      if (patch.quietHours    !== undefined) row.quiet_hours    = patch.quietHours;
+      if (patch.quietStart    !== undefined) row.quiet_start    = patch.quietStart;
+      if (patch.quietEnd      !== undefined) row.quiet_end      = patch.quietEnd;
+      if (patch.escalateNanny !== undefined) row.escalate_nanny = patch.escalateNanny;
+      if (patch.hapticOnly    !== undefined) row.haptic_only    = patch.hapticOnly;
+      if (patch.lockOnTask    !== undefined) row.lock_on_task   = patch.lockOnTask;
+      if (patch.blockGames    !== undefined) row.block_games    = patch.blockGames;
+      const { error } = await this.sb.from('kid_settings').upsert(row, { onConflict: 'kid_id' });
+      if (error) console.warn('Settings persist failed:', error.message);
+    } catch { /* degrade gracefully if table missing */ }
+  }
+
+  async createDevice(d: { kidId: string; kind: DeviceKind; label: string }): Promise<Device> {
+    const id  = `dev_${d.kind}_${Date.now()}`;
+    const now = Date.now();
+    const { error } = await this.sb.from('devices').insert({
+      id, kid_id: d.kidId, kind: d.kind, label: d.label,
+      last_seen: now, paired: true,
+    });
+    if (error) throw error;
+    return { id, kidId: d.kidId, kind: d.kind, label: d.label, lastSeen: now, paired: true };
+  }
+
   async createRoutine(r: Routine) {
     const { error } = await this.sb.from('routines').insert({
       id: r.id,
@@ -276,6 +346,8 @@ class MockImpl implements TimekeeperClient {
   private devicesStore = [...MOCK_DEVICES];
   private alertsStore = [...MOCK_ALERTS];
   private heartbeatStore: LaptopHeartbeat | null = MOCK_HEARTBEAT_LATEST;
+  private settingsStore: KidSettings = { ...DEFAULT_KID_SETTINGS };
+  private bonusStarsStore = 0;
 
   private eventListeners = new Set<Listener<TaskEvent>>();
   private heartbeatListeners = new Set<Listener<LaptopHeartbeat>>();
@@ -327,6 +399,19 @@ class MockImpl implements TimekeeperClient {
   async devices(kidId: string) { return this.devicesStore.filter(d => d.kidId === kidId); }
   async alerts(kidId: string) { return this.alertsStore.filter(a => a.kidId === kidId); }
   async heartbeat(_kidId: string) { return this.heartbeatStore; }
+
+  async getSettings(_kidId: string): Promise<KidSettings> { return { ...this.settingsStore }; }
+  async saveSettings(_kidId: string, patch: Partial<KidSettings>): Promise<void> {
+    this.settingsStore = { ...this.settingsStore, ...patch };
+  }
+  async createDevice(d: { kidId: string; kind: DeviceKind; label: string }): Promise<Device> {
+    const device: Device = {
+      id: `dev_${d.kind}_${Date.now()}`, kidId: d.kidId, kind: d.kind,
+      label: d.label, lastSeen: Date.now(), paired: true,
+    };
+    this.devicesStore.push(device);
+    return device;
+  }
 
   async createRoutine(r: Routine) {
     this.routinesStore.push(r);

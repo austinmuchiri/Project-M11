@@ -1,10 +1,10 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import {
-  createTimekeeperClient, MOCK_KID,
-  type TimekeeperClient, type AuthSession, type KidProfile,
+  createTimekeeperClient, MOCK_KID, DEFAULT_KID_SETTINGS,
+  type TimekeeperClient, type AuthSession, type KidProfile, type KidSettings,
 } from '@timekeeper/supabase-client';
 import type {
-  Routine, Task, TaskEvent, Device, Alert, LaptopHeartbeat, Nudge, BlockCommand,
+  Routine, Task, TaskEvent, Device, Alert, LaptopHeartbeat, Nudge, BlockCommand, DeviceKind,
 } from '@timekeeper/schema';
 
 
@@ -30,6 +30,8 @@ export interface State {
   heartbeat: LaptopHeartbeat | null;
   bootstrapError: string | null;
   activeBlock: BlockCommand | null;
+  settings: KidSettings;
+  bonusStars: number;
 }
 
 let state: State = {
@@ -44,6 +46,8 @@ let state: State = {
   heartbeat: null,
   bootstrapError: null,
   activeBlock: null,
+  settings: DEFAULT_KID_SETTINGS,
+  bonusStars: 0,
 };
 
 
@@ -124,16 +128,17 @@ async function loadKidData() {
     }
 
     console.log("📡 Fetching routines, events, etc...");
-    const [routines, events, devices, alerts, heartbeat] = await Promise.all([
+    const [routines, events, devices, alerts, heartbeat, settings] = await Promise.all([
       getClient().routines(kid.id),
       getClient().events(kid.id, Date.now() - 7 * 24 * 60 * 60 * 1000),
       getClient().devices(kid.id),
       getClient().alerts(kid.id),
       getClient().heartbeat(kid.id),
+      getClient().getSettings(kid.id),
     ]);
 
     console.log("✅ Data fetch complete!");
-    set({ ready: true, kid, routines, events, devices, alerts, heartbeat, bootstrapError: null });
+    set({ ready: true, kid, routines, events, devices, alerts, heartbeat, settings, bootstrapError: null });
     // ... rest of subs
   } catch (err) {
     console.error("❌ Bootstrap failed:", err);
@@ -186,12 +191,34 @@ export async function toggleRoutineActive(routineId: string) {
   await updateRoutine(routineId, { active: !r.active });
 }
 
-export async function addTaskToRoutine(routineId: string, task: Task) {
-  const r = state.routines.find(r => r.id === routineId);
-  if (!r) return;
-  const tasks = [...r.tasks, task];
-  set({ routines: state.routines.map(r => r.id === routineId ? { ...r, tasks } : r) });
-  await getClient().updateRoutine(routineId, { tasks });
+export async function saveSettings(patch: Partial<KidSettings>) {
+  set({ settings: { ...state.settings, ...patch } });
+  await getClient().saveSettings(state.kid.id, patch);
+}
+
+// store.ts
+
+export async function pairDevice(kind: DeviceKind, label: string, code?: string) {
+  const client = getClient();
+  // const state = get();
+
+  // Fix: Use 'any' to bypass strict schema checks for the custom 'pairingCode'
+  const payload: any = {
+    kidId: state.kid.id,
+    kind,
+    label,
+  };
+
+  if (code) {
+    payload.pairingCode = code; // This goes to Supabase for the watch to verify[cite: 2]
+  }
+
+  const device = await client.createDevice(payload);
+  set({ devices: [...state.devices, device] });
+}
+
+export function awardStars(amount: number) {
+  set({ bonusStars: state.bonusStars + amount });
 }
 
 export async function deleteRoutine(routineId: string) {
@@ -207,7 +234,13 @@ export async function deleteTaskFromRoutine(routineId: string, taskId: string) {
   await getClient().updateRoutine(routineId, { tasks });
 }
 
-
+export async function addTaskToRoutine(routineId: string, task: Task) {
+  const r = state.routines.find(r => r.id === routineId);
+  if (!r) return;
+  const tasks = [...r.tasks, task];
+  set({ routines: state.routines.map(r => r.id === routineId ? { ...r, tasks } : r) });
+  await getClient().updateRoutine(routineId, { tasks });
+}
 
 export async function updateTaskInRoutine(routineId: string, taskId: string, patch: Partial<Task>) {
   const r = state.routines.find(r => r.id === routineId);
@@ -323,4 +356,77 @@ export function computeWeeklyStars(s: State): number {
     }
   }
   return stars;
+}
+
+export function computeTotalStars(s: State): number {
+  let earned = 0;
+  for (const ev of s.events) {
+    if (ev.status !== 'done') continue;
+    for (const r of s.routines) {
+      const task = r.tasks.find(t => t.id === ev.taskId);
+      if (task) { earned += task.rewardStars; break; }
+    }
+  }
+  return earned + s.bonusStars;
+}
+
+export function computeWeekCompliance(s: State): { d: string; pct: number }[] {
+  const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const now = new Date();
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+  monday.setHours(0, 0, 0, 0);
+
+  const total = s.routines.filter(r => r.active).reduce((sum, r) => sum + r.tasks.length, 0);
+
+  return labels.map((d, i) => {
+    const dayStart = new Date(monday);
+    dayStart.setDate(monday.getDate() + i);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setDate(dayStart.getDate() + 1);
+    if (total === 0) return { d, pct: 0 };
+    const done = s.events.filter(ev =>
+      ev.status === 'done' && ev.ts >= dayStart.getTime() && ev.ts < dayEnd.getTime()
+    ).length;
+    return { d, pct: Math.round(Math.min(100, (done / total) * 100)) };
+  });
+}
+
+export function computeTimeOfDay(s: State): { morning: number; school: number; evening: number } {
+  const bucket = (startTime: string | undefined | null): 'morning' | 'school' | 'evening' => {
+    const h = parseInt((startTime ?? '0').split(':')[0], 10);
+    if (h < 12) return 'morning';
+    if (h < 17) return 'school';
+    return 'evening';
+  };
+  const totals = { morning: 0, school: 0, evening: 0 };
+  const done   = { morning: 0, school: 0, evening: 0 };
+  for (const r of s.routines) {
+    if (!r.active) continue;
+    const b = bucket(r.startTime);
+    totals[b] += r.tasks.length;
+    for (const ev of s.events) {
+      if (ev.status === 'done' && ev.routineId === r.id) done[b]++;
+    }
+  }
+  return {
+    morning: totals.morning ? Math.round((done.morning / totals.morning) * 100) : 0,
+    school:  totals.school  ? Math.round((done.school  / totals.school)  * 100) : 0,
+    evening: totals.evening ? Math.round((done.evening / totals.evening) * 100) : 0,
+  };
+}
+
+export function computeTrendWeeks(s: State): number[] {
+  const weekMs = 7 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const total = s.routines.filter(r => r.active).reduce((sum, r) => sum + r.tasks.length, 0) * 7;
+  return Array.from({ length: 12 }, (_, i) => {
+    const weekEnd = now - (11 - i) * weekMs;
+    const weekStart = weekEnd - weekMs;
+    if (total === 0) return 0;
+    const done = s.events.filter(ev =>
+      ev.status === 'done' && ev.ts >= weekStart && ev.ts < weekEnd
+    ).length;
+    return Math.round(Math.min(100, (done / total) * 100));
+  });
 }

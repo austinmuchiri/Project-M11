@@ -12,7 +12,8 @@ const META: Record<AlertKind, { color: string; bg: string; icon: IconName }> = {
 };
 
 export function AlertsScreen({ onNudge }: { onNudge: () => void }) {
-  const alerts = useStore(s => s.alerts);
+  const alerts   = useStore(s => s.alerts);
+  const settings = useStore(s => s.settings);
 
   const today = alerts.filter(a => Date.now() - a.ts < 24 * 60 * 60_000);
   const earlier = alerts.filter(a => Date.now() - a.ts >= 24 * 60 * 60_000);
@@ -29,9 +30,9 @@ export function AlertsScreen({ onNudge }: { onNudge: () => void }) {
             <AppIcon name="bell" size={18} color="#fff"/>
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: APP.ink }}>Gentle escalation: 3-miss rule</div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: APP.ink }}>Gentle escalation: {settings.missThreshold}-miss rule</div>
             <div style={{ fontSize: 11, color: APP.ink2, marginTop: 2 }}>
-              You're pinged after 3 misses in a row · adjust in Settings
+              You're pinged after {settings.missThreshold} misses in a row · adjust in Settings
             </div>
           </div>
         </div>

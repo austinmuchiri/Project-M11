@@ -13,13 +13,13 @@ import { LoginScreen } from './screens/Login.js';
 type ScreenId = 'home' | 'schedule' | 'analytics' | 'notes' | 'settings' | 'nudge' | 'rewards';
 
 const META: Record<ScreenId, { title: string; subtitle: string; tab: string; back?: ScreenId }> = {
-  home:      { title: 'Today',        subtitle: 'Munene · 8 yrs',           tab: 'home' },
-  schedule:  { title: 'Schedule',     subtitle: 'Today · Sun, Apr 25',      tab: 'schedule' },
-  analytics: { title: 'Insights',     subtitle: 'Compliance & trends',      tab: 'analytics' },
+  home:      { title: 'Today',        subtitle: '',           tab: 'home' },
+  schedule:  { title: 'Tasks & Routines',     subtitle: '',      tab: 'schedule' },
+  analytics: { title: 'Analytics',     subtitle: 'Compliance & trends',      tab: 'analytics' },
   notes:     { title: 'Alerts',       subtitle: 'Gentle escalation',        tab: 'notes' },
   settings:  { title: 'Settings',     subtitle: 'Devices & rules',          tab: 'settings' },
   nudge:     { title: 'Send a nudge', subtitle: 'Lands on watch + laptop',  tab: 'home',     back: 'home' },
-  rewards:   { title: 'Rewards',      subtitle: 'Stars & redeemables',      tab: 'settings', back: 'settings' },
+  rewards:   { title: 'Reward Centre',      subtitle: 'Stars & redeemables',      tab: 'settings', back: 'settings' },
 };
 
 export function App() {
@@ -81,8 +81,8 @@ if (ready && !session) {
       <AppHeader
         title={meta.title}
         subtitle={meta.subtitle}
-        trailing={<KidAvatar size={32} name={kid.initials} color={kid.avatarColor} ring/>}
         onBack={meta.back ? () => setScreen(meta.back as ScreenId) : undefined}
+        
       />
 
       <div style={{

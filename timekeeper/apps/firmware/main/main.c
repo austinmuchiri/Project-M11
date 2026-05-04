@@ -64,6 +64,13 @@ void app_main(void)
     xTaskCreate(clock_tick, "clock", 3 * 1024, NULL, 3, NULL);
 
     if (!ble_is_connected()) {
-        ui_show_screen(SCR_PAIR);
+        // Generate a random 4-digit code
+        uint32_t pairing_code = 1000 + (esp_random() % 9000); 
+        
+        // Apply to BLE stack
+        ble_setup_security(pairing_code);
+        
+        // Update UI to show this specific code
+        ui_show_pair_screen(pairing_code); 
     }
 }

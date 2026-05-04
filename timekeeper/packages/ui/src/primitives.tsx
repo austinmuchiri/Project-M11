@@ -300,6 +300,7 @@ export function Btn({
   icon?: React.ReactNode;
   style?: React.CSSProperties;
   full?: boolean;
+  disabled?: boolean;
 }) {
   const sz = size === 'sm' ? { h: 32, fs: 12, px: 12 }
     : size === 'lg' ? { h: 48, fs: 15, px: 18 }

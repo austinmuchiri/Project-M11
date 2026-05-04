@@ -3,8 +3,7 @@ import {
   APP, AppIcon, Card, IconBadge, MiniWatchFace, Pill, RingGauge,
   StatusDot, TASK_ICON, type IconName,
 } from '@timekeeper/ui';
-import { useStore, resolveTodayTasks, activeTask, lockLaptop, unlockLaptop,
-   blockApp, computeStreak, computeWeeklyStars } from '../store';
+import { useStore, resolveTodayTasks, activeTask, lockLaptop, unlockLaptop, blockApp, computeStreak, computeWeeklyStars } from '../store';
 
 export function HomeScreen({ onNudge, onSchedule }: {
   onNudge: () => void;
@@ -37,7 +36,7 @@ export function HomeScreen({ onNudge, onSchedule }: {
   return (
     <div style={{ padding: '0 16px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-          {/* Kid profile */}
+      {/* Kid profile */}
       <Card padding={14}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{
@@ -262,11 +261,14 @@ const BLOCKABLE_APPS: { name: string; icon: IconName }[] = [
 ];
 
 function FocusControlsCard() {
-  const kid        = useStore(s => s.kid);
-  const active     = useStore(activeTask);
+  const kid         = useStore(s => s.kid);
+  const active      = useStore(activeTask);
   const activeBlock = useStore(s => s.activeBlock);
+  const heartbeat   = useStore(s => s.heartbeat);
   const [showPicker, setShowPicker] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+
+  const laptopOnline = heartbeat ? (Date.now() - heartbeat.ts) < 60_000 : false;
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -274,12 +276,14 @@ function FocusControlsCard() {
   };
 
   const onLock = async () => {
+    if (!laptopOnline) { showToast('Laptop is offline'); return; }
     await lockLaptop(kid.id, active ?? undefined);
     setShowPicker(false);
     showToast('Laptop locked');
   };
 
   const onBlockApp = (appName: string) => async () => {
+    if (!laptopOnline) { showToast('Laptop is offline'); setShowPicker(false); return; }
     await blockApp(kid.id, appName, active ?? undefined);
     setShowPicker(false);
     showToast(`${appName} blocked`);
@@ -297,19 +301,25 @@ function FocusControlsCard() {
     <Card padding={14}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <IconBadge name="laptop" color={activeBlock ? APP.accent : APP.brand} size={28} iconSize={14}/>
+          <IconBadge name="laptop" color={activeBlock ? APP.accent : laptopOnline ? APP.brand : APP.inkDim} size={28} iconSize={14}/>
           <div>
             <div style={{ fontSize: 13, fontWeight: 800, color: APP.ink }}>Focus controls</div>
             <div style={{ fontSize: 11, color: APP.inkDim, marginTop: 1 }}>
-              {isLocked ? 'Screen locked' : blockedApp ? `${blockedApp} blocked` : 'Laptop open'}
+              {!laptopOnline ? 'Laptop offline' : isLocked ? 'Screen locked' : blockedApp ? `${blockedApp} blocked` : 'Laptop open'}
             </div>
           </div>
         </div>
-        {activeBlock && (
+        {activeBlock && laptopOnline && (
           <div style={{
             fontSize: 10, fontWeight: 800, letterSpacing: 1.2, textTransform: 'uppercase',
             color: APP.accent, background: APP.accentSoft, borderRadius: 6, padding: '3px 8px',
           }}>Active</div>
+        )}
+        {!laptopOnline && (
+          <div style={{
+            fontSize: 10, fontWeight: 800, letterSpacing: 1.2, textTransform: 'uppercase',
+            color: APP.inkDim, background: APP.bgSoft, borderRadius: 6, padding: '3px 8px',
+          }}>Offline</div>
         )}
       </div>
 
@@ -349,26 +359,31 @@ function FocusControlsCard() {
 
       {!activeBlock ? (
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={onLock} aria-label="Lock laptop screen now" style={{
-            flex: 1, height: 40, borderRadius: 10, border: 'none',
-            background: APP.brand, color: '#fff', fontFamily: APP.font,
-            fontWeight: 800, fontSize: 13, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-          }}>
+          <button onClick={onLock} aria-label="Lock laptop screen now"
+            title={!laptopOnline ? 'Laptop is offline' : undefined}
+            style={{
+              flex: 1, height: 40, borderRadius: 10, border: 'none',
+              background: laptopOnline ? APP.brand : APP.bgSoft,
+              color: laptopOnline ? '#fff' : APP.inkDim,
+              fontFamily: APP.font, fontWeight: 800, fontSize: 13,
+              cursor: laptopOnline ? 'pointer' : 'not-allowed',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+            }}>
             🔒 Lock laptop
           </button>
           <button
-            onClick={() => setShowPicker(p => !p)}
+            onClick={() => laptopOnline && setShowPicker(p => !p)}
             aria-label="Block a specific app"
+            title={!laptopOnline ? 'Laptop is offline' : undefined}
             style={{
               flex: 1, height: 40, borderRadius: 10,
-              border: `1.5px solid ${APP.accent}`,
+              border: `1.5px solid ${laptopOnline ? APP.accent : APP.border}`,
               background: showPicker ? APP.accentSoft : 'transparent',
-              color: APP.accent, fontFamily: APP.font,
-              fontWeight: 800, fontSize: 13, cursor: 'pointer',
+              color: laptopOnline ? APP.accent : APP.inkDim,
+              fontFamily: APP.font, fontWeight: 800, fontSize: 13,
+              cursor: laptopOnline ? 'pointer' : 'not-allowed',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-            }}
-          >
+            }}>
             🚫 Block apps
           </button>
         </div>
