@@ -393,12 +393,19 @@ export function computeWeekCompliance(s: State): { d: string; pct: number }[] {
 }
 
 export function computeTimeOfDay(s: State): { morning: number; school: number; evening: number } {
-  const bucket = (startTime: string | undefined | null): 'morning' | 'school' | 'evening' => {
-    const h = parseInt((startTime ?? '0').split(':')[0], 10);
-    if (h < 12) return 'morning';
-    if (h < 17) return 'school';
-    return 'evening';
-  };
+  const bucket = (
+  startTime: string | undefined | null
+): 'morning' | 'school' | 'evening' => {
+  if (!startTime || !startTime.includes(':')) return 'morning';
+
+  const [hourStr] = startTime.split(':');
+  const h = Number(hourStr);
+
+  if (Number.isNaN(h)) return 'morning';
+  if (h < 12) return 'morning';
+  if (h < 17) return 'school';
+  return 'evening';
+};
   const totals = { morning: 0, school: 0, evening: 0 };
   const done   = { morning: 0, school: 0, evening: 0 };
   for (const r of s.routines) {

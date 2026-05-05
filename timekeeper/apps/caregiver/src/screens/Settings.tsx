@@ -33,14 +33,32 @@ export function SettingsScreen({ onRewards }: { onRewards: () => void }) {
   };
 
   const handlePair = async () => {
-    // Validation: Require 4 digits for the watch[cite: 2]
-    if (pairKind === 'watch' && pairCode.length !== 4) {
-      alert("Please enter the 4-digit code shown on your watch.");
-      return;
+    setPairBusy(true);
+    try {
+      if (pairKind === 'watch') {
+        // Logic for ESP32 Watch pairing
+        if (pairCode.length !== 4) {
+          alert("Please enter the 4-digit code shown on your watch.");
+          return;
+        }
+        await pairDevice(pairKind, pairLabel, pairCode);
+      } else if (pairKind === 'laptop') {
+        // NEW: Logic for Electron Laptop pairing
+        // In a real scenario, you might prompt the user to enter the
+        // Device ID shown on the Electron screen (image_10eff7.png)
+        const generatedId = `laptop_${Math.random().toString(36).substr(2, 5)}`;
+        await pairDevice(pairKind, pairLabel, generatedId);
+        showMsg("Laptop linked! Ensure the Monitor app is running.");
+      }
+      
+      setShowPair(false);
+      setPairCode('');
+      setPairLabel('');
+    } catch (err) {
+      showMsg("Pairing failed. Please try again.");
+    } finally {
+      setPairBusy(false);
     }
-
-    await pairDevice(pairKind, pairLabel, pairCode);
-    // ... reset state ...
   };
 
   const inputStyle: React.CSSProperties = {
@@ -101,7 +119,7 @@ export function SettingsScreen({ onRewards }: { onRewards: () => void }) {
           </div>          
           {/* Kind selector */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            {(['watch', 'laptop', 'phone'] as DeviceKind[]).map(k => (
+            {(['watch', 'laptop'] as DeviceKind[]).map(k => (
               <button key={k} onClick={() => setPairKind(k)} style={{
                 flex: 1, padding: '10px 4px', borderRadius: 10,
                 border: `1.5px solid ${pairKind === k ? APP.brand : APP.border}`,
