@@ -10,4 +10,9 @@ contextBridge.exposeInMainWorld('tk', {
   onRoute:     (cb: (r: string) => void) => {
     ipcRenderer.on('tk:route', (_e, r: string) => cb(r));
   },
+  // Receives 'locked' | 'pending' from main process to update lockscreen UI
+  // without a round-trip IPC invoke.
+  onLockState: (cb: (state: string) => void) => {
+    ipcRenderer.on('tk:lock-state', (_e, state: string) => cb(state));
+  },
 });

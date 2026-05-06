@@ -3,7 +3,7 @@ import {
   APP, AppIcon, Btn, Card, IconBadge, SectionTitle, StatusDot, Toggle,
   type IconName,
 } from '@timekeeper/ui';
-import { useStore, saveSettings, pairDevice } from '../store';
+import { useStore, saveSettings, pairDevice, removeDevice } from '../store';
 import type { DeviceKind } from '@timekeeper/schema';
 
 const KIND_META: Record<DeviceKind, { icon: IconName; color: string }> = {
@@ -23,7 +23,8 @@ export function SettingsScreen({ onRewards }: { onRewards: () => void }) {
   const [pairLabel, setPairLabel]     = useState('');
   const [pairBusy, setPairBusy]       = useState(false);
   const [toast, setToast]             = useState<string | null>(null);
-  const [pairCode, setPairCode] = useState('');
+  const [pairCode, setPairCode]       = useState('');
+  const [laptopDeviceId, setLaptopDeviceId] = useState('');
 
   const laptopOnline = heartbeat ? (Date.now() - heartbeat.ts) < 60_000 : false;
 
@@ -33,31 +34,48 @@ export function SettingsScreen({ onRewards }: { onRewards: () => void }) {
   };
 
   const handlePair = async () => {
+    if (!pairLabel.trim()) {
+      showMsg('Please enter a label for this device.');
+      return;
+    }
     setPairBusy(true);
     try {
       if (pairKind === 'watch') {
-        // Logic for ESP32 Watch pairing
         if (pairCode.length !== 4) {
-          alert("Please enter the 4-digit code shown on your watch.");
+          showMsg('Please enter the 4-digit code shown on your watch.');
           return;
         }
-        await pairDevice(pairKind, pairLabel, pairCode);
+        await pairDevice(pairKind, pairLabel.trim(), pairCode);
+        showMsg('Watch paired successfully!');
       } else if (pairKind === 'laptop') {
-        // NEW: Logic for Electron Laptop pairing
-        // In a real scenario, you might prompt the user to enter the
-        // Device ID shown on the Electron screen (image_10eff7.png)
-        const generatedId = `laptop_${Math.random().toString(36).substr(2, 5)}`;
-        await pairDevice(pairKind, pairLabel, generatedId);
-        showMsg("Laptop linked! Ensure the Monitor app is running.");
+        if (!laptopDeviceId.trim()) {
+          showMsg('Please enter the Device ID shown in the Monitor app.');
+          return;
+        }
+        // Use the exact device ID from the laptop monitor rather than generating
+        // a random one — this ensures both sides agree on the device identifier.
+        await pairDevice(pairKind, pairLabel.trim(), laptopDeviceId.trim());
+        showMsg('Laptop linked! The Monitor app will sync automatically.');
       }
-      
+
       setShowPair(false);
       setPairCode('');
       setPairLabel('');
-    } catch (err) {
-      showMsg("Pairing failed. Please try again.");
+      setLaptopDeviceId('');
+    } catch {
+      showMsg('Pairing failed. Please try again.');
     } finally {
       setPairBusy(false);
+    }
+  };
+
+  const handleRemoveDevice = async (deviceId: string, label: string) => {
+    if (!window.confirm(`Remove "${label}" from this account?`)) return;
+    try {
+      await removeDevice(deviceId);
+      showMsg(`${label} removed.`);
+    } catch {
+      showMsg('Could not remove device. Please try again.');
     }
   };
 
@@ -68,10 +86,20 @@ export function SettingsScreen({ onRewards }: { onRewards: () => void }) {
     fontFamily: APP.font, fontSize: 14, color: APP.ink, outline: 'none',
   };
 
+  const monoInputStyle: React.CSSProperties = {
+    ...inputStyle,
+    fontFamily: APP.fontMono, fontSize: 13, letterSpacing: '0.5px',
+  };
+
   return (
     <div style={{ padding: '0 16px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
       <SectionTitle>Devices</SectionTitle>
       <Card padding={0}>
+        {devices.length === 0 && (
+          <div style={{ padding: '16px 14px', fontSize: 12, color: APP.inkDim, textAlign: 'center' }}>
+            No devices paired yet
+          </div>
+        )}
         {devices.map((d, i) => {
           const meta = KIND_META[d.kind];
           const ago = Math.floor((Date.now() - d.lastSeen) / 1000);
@@ -96,9 +124,20 @@ export function SettingsScreen({ onRewards }: { onRewards: () => void }) {
                   {d.fwVersion ? `v${d.fwVersion} · ` : ''}{d.id}
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <StatusDot color={dotColor} size={6}/>
                 <div style={{ fontSize: 11, color: APP.ink2, fontWeight: 700 }}>{status}</div>
+                <button
+                  aria-label={`Remove ${d.label}`}
+                  onClick={() => handleRemoveDevice(d.id, d.label)}
+                  title="Remove device"
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    padding: 4, lineHeight: 1, display: 'flex', alignItems: 'center',
+                    opacity: 0.5,
+                  }}>
+                  <AppIcon name="minus" size={12} color={APP.inkDim}/>
+                </button>
               </div>
             </div>
           );
@@ -116,7 +155,8 @@ export function SettingsScreen({ onRewards }: { onRewards: () => void }) {
         <Card padding={16} style={{ border: `1.5px solid ${APP.brand}` }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: APP.ink, marginBottom: 12 }}>
             Pair a new device
-          </div>          
+          </div>
+
           {/* Kind selector */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             {(['watch', 'laptop'] as DeviceKind[]).map(k => (
@@ -135,38 +175,76 @@ export function SettingsScreen({ onRewards }: { onRewards: () => void }) {
             ))}
           </div>
 
-          
-          {/* ... Device Selector ... */}
-
+          {/* Watch: 4-digit PIN shown on the physical device */}
           {pairKind === 'watch' && (
-            <div style={{ marginBottom: 15 }}>
-              <label style={{ fontSize: 11, fontWeight: 'bold', color: '#666' }}>WATCH PAIRING CODE</label>
-              <input 
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 11, fontWeight: 800, color: APP.inkDim, display: 'block', marginBottom: 6, letterSpacing: 1 }}>
+                WATCH PAIRING CODE
+              </label>
+              <input
                 type="text"
+                inputMode="numeric"
                 maxLength={4}
                 value={pairCode}
-                onChange={(e) => setPairCode(e.target.value.replace(/\D/g, ''))}
-                placeholder="0000"
-                style={{ 
-                    width: '100%', padding: '12px', borderRadius: '8px', 
-                    textAlign: 'center', fontSize: '20px', letterSpacing: '4px' 
+                onChange={e => setPairCode(e.target.value.replace(/\D/g, ''))}
+                placeholder="0 0 0 0"
+                style={{
+                  ...monoInputStyle,
+                  textAlign: 'center', fontSize: 24, letterSpacing: '8px',
                 }}
               />
+              <div style={{ fontSize: 11, color: APP.inkDim, marginTop: 5 }}>
+                Enter the 4-digit code shown on the watch display.
+              </div>
+            </div>
+          )}
+
+          {/* Laptop: Device ID copied from the Monitor app tray popup */}
+          {pairKind === 'laptop' && (
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 11, fontWeight: 800, color: APP.inkDim, display: 'block', marginBottom: 6, letterSpacing: 1 }}>
+                MONITOR DEVICE ID
+              </label>
+              <input
+                type="text"
+                value={laptopDeviceId}
+                onChange={e => setLaptopDeviceId(e.target.value.trim())}
+                placeholder="dev_laptop_xxxxx"
+                style={monoInputStyle}
+              />
+              <div style={{ fontSize: 11, color: APP.inkDim, marginTop: 5, lineHeight: 1.5 }}>
+                Open TimeKeeper Monitor on the laptop, click the tray icon, then copy the Device ID shown in the status popup.
+              </div>
+              {/* Live connection indicator if a laptop heartbeat is already arriving */}
+              {laptopOnline && (
+                <div style={{
+                  marginTop: 8, display: 'flex', alignItems: 'center', gap: 6,
+                  fontSize: 11, color: APP.brand, fontWeight: 700,
+                }}>
+                  <StatusDot color={APP.brand} size={6}/>
+                  Monitor app is online and sending data
+                </div>
+              )}
             </div>
           )}
 
           <input
             value={pairLabel}
             onChange={e => setPairLabel(e.target.value)}
-            placeholder={`Label (e.g. ${pairKind === 'watch' ? "Munene's Watch" : pairKind === 'laptop' ? "Munene's MacBook" : "Nanny phone"})`}
+            placeholder={`Label (e.g. ${pairKind === 'watch' ? "Munene's Watch" : "Munene's MacBook"})`}
             style={{ ...inputStyle, marginBottom: 10 }}
           />
 
           <div style={{ display: 'flex', gap: 8 }}>
             <Btn variant="primary" full onClick={handlePair} disabled={pairBusy}>
-              {pairBusy ? 'Verifying…' : 'Pair device'}
+              {pairBusy ? 'Pairing…' : 'Pair device'}
             </Btn>
-            <Btn variant="secondary" onClick={() => setShowPair(false)}>Cancel</Btn>
+            <Btn variant="secondary" onClick={() => {
+              setShowPair(false);
+              setPairCode('');
+              setPairLabel('');
+              setLaptopDeviceId('');
+            }}>Cancel</Btn>
           </div>
         </Card>
       )}

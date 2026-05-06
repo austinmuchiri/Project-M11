@@ -24,7 +24,9 @@
   .ring .center { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     flex-direction: column; }
   .hint { font-family: 'JetBrains Mono', monospace; font-size: 14px;
-    color: rgba(244,239,230,0.55); letter-spacing: 1px; margin-top: 8px; }
+    color: rgba(244,239,230,0.55); letter-spacing: 1px; margin-top: 8px;
+    transition: color 0.4s ease; }
+  .hint.pending { color: rgba(201,148,102,0.9); }
 </style>
 </head>
 <body>
@@ -42,7 +44,7 @@
     </div>
   </div>
 
-  <div class="hint">Tap watch → DONE to unlock</div>
+  <div class="hint" id="hint">Tap watch → DONE to unlock</div>
 
 <script>
   const params = new URLSearchParams(window.location.search);
@@ -66,6 +68,22 @@
     if (remainingMs > 0) requestAnimationFrame(tick);
   }
   tick();
+
+  // Update hint text when the child requests an unlock but is waiting for
+  // caregiver approval — main process sends 'pending' or 'locked' via IPC.
+  if (window.tk && window.tk.onLockState) {
+    window.tk.onLockState(function(state) {
+      var hint = document.getElementById('hint');
+      if (!hint) return;
+      if (state === 'pending') {
+        hint.textContent = 'Unlock request sent · Waiting for caregiver…';
+        hint.classList.add('pending');
+      } else {
+        hint.textContent = 'Tap watch → DONE to unlock';
+        hint.classList.remove('pending');
+      }
+    });
+  }
 </script>
 </body>
 </html>

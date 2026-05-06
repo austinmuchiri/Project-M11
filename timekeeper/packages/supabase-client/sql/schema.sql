@@ -1,3 +1,12 @@
+drop table alerts cascade;
+drop table devices cascade;
+drop table kids cascade;
+drop table laptop_heartbeat cascade;
+drop table nudges cascade;
+drop table task_events cascade;
+drop table routines cascade;
+drop table block_commands cascade;
+drop table tasks cascade;
 -- =========================
 -- CORE ENTITIES
 -- =========================
@@ -16,8 +25,6 @@ create table if not exists routines (
   id            text primary key,
   kid_id        text references kids(id) on delete cascade,
   name          text not null,
-  days_of_week  int[] not null default '{}',
-  start_time    text not null,
   active        boolean not null default true,
   created_at    timestamptz default now()
 );
@@ -153,9 +160,17 @@ alter table nudges enable row level security;
 alter table block_commands enable row level security;
 
 -- ownership helper
-create or replace function tk_owns_kid(kid text) returns boolean
-language sql stable as $$
-  select exists (select 1 from kids where id = kid and user_id = auth.uid())
+create or replace function tk_owns_kid(kid text)
+returns boolean
+language sql
+stable
+as $$
+  select exists (
+    select 1
+    from kids
+    where kids.id = kid
+      and user_id = auth.uid()
+  );
 $$;
 
 -- policies

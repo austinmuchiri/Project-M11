@@ -13,6 +13,7 @@ export type TaskIcon = z.infer<typeof TaskIcon>;
 export const Task = z.object({
   id: z.string(),
   label: z.string().min(1).max(40),
+  kidId: z.string(),
   icon: TaskIcon,
   expectedMinutes: z.number().int().positive().max(180),
   rewardStars: z.number().int().min(0).max(10),
@@ -24,9 +25,8 @@ export const Routine = z.object({
   id: z.string(),
   kidId: z.string(),
   name: z.string().min(1).max(40),
-  tasks: z.array(Task),
-  daysOfWeek: z.array(z.number().int().min(0).max(6)), // 0 = Sun
-  startTime: z.string().regex(/^\d{2}:\d{2}$/),
+  tasks: z.array(Task).min(1).max(20),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/), // 'HH:MM'
   active: z.boolean(),
 });
 export type Routine = z.infer<typeof Routine>;
@@ -59,7 +59,7 @@ export type TaskEvent = z.infer<typeof TaskEvent>;
 // Devices
 // ─────────────────────────────────────────────────────────
 
-export const DeviceKind = z.enum(['watch', 'laptop', 'phone']);
+export const DeviceKind = z.enum(['watch', 'laptop']);
 export type DeviceKind = z.infer<typeof DeviceKind>;
 
 export const Device = z.object({

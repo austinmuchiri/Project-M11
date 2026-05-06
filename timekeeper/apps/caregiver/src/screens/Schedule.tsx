@@ -8,8 +8,8 @@ import type { Task, TaskIcon } from '@timekeeper/schema';
 import {
   useStore, resolveTodayTasks, toggleRoutineActive,
   addTaskToRoutine, updateTaskInRoutine, createRoutine,
-  deleteRoutine, deleteTaskFromRoutine,
-} from '../store.js';
+  deleteRoutine, deleteTaskFromRoutine, 
+} from '../store';
 
 const TASK_ICONS: TaskIcon[] = [
   'sun', 'moon', 'brush', 'shirt', 'plate', 'bag',
@@ -38,6 +38,8 @@ function getRoutineVisual(routineId: string, routineName: string): { icon: IconN
   if (lower.includes('school') || lower.includes('homework')) return { icon: 'pencil', color: APP.info };
   return { icon: 'dot', color: APP.brand };
 }
+
+
 
 function formatDay(): string {
   return new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
@@ -68,7 +70,10 @@ export function ScheduleScreen({ selectedId, onSelect }: {
 }) {
   const routines = useStore(s => s.routines);
   const tasks    = useStore(resolveTodayTasks);
+  const devices    = useStore(s => s.devices);
 
+
+  const watch = devices.find(d => d.kind === 'watch');
   const selected = routines.find(r => r.id === selectedId) ?? routines[0];
   const selectedTasks = tasks.filter(t => t.routineId === selected?.id);
 
@@ -79,9 +84,16 @@ export function ScheduleScreen({ selectedId, onSelect }: {
   const [noRoutineWarning, setNoRoutineWarning] = useState(false);
   const [deletingRoutineId, setDeletingRoutineId] = useState<string | null>(null);
 
+  const [toast, setToast] = useState<{msg: string, type: 'success' | 'error'} | null>(null);
+
   // Routine modal
   const [isRoutineModalOpen, setIsRoutineModalOpen] = useState(false);
   const [routineDraft, setRoutineDraft]             = useState<RoutineDraft>(DEFAULT_ROUTINE_DRAFT);
+
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   const openAdd = () => {
     if (routines.length === 0) {
@@ -114,6 +126,7 @@ export function ScheduleScreen({ selectedId, onSelect }: {
     if (editingTaskId === undefined) {
       const newTask: Task = {
         id: `task-${Date.now()}`,
+        kidId: selected.kidId,
         label: draft.label.trim(),
         icon: draft.icon,
         scheduledTime: draft.scheduledTime,
@@ -121,6 +134,7 @@ export function ScheduleScreen({ selectedId, onSelect }: {
         rewardStars: draft.rewardStars,
       };
       await addTaskToRoutine(selected.id, newTask);
+      showToast("Task added!");
     } else if (editingTaskId) {
       await updateTaskInRoutine(selected.id, editingTaskId, {
         label: draft.label.trim(),
@@ -130,20 +144,27 @@ export function ScheduleScreen({ selectedId, onSelect }: {
         rewardStars: draft.rewardStars,
       });
     }
+    showToast("Task updated!");
     closeModal();
   };
 
   const handleDeleteTask = async (taskId: string) => {
     if (!selected) return;
     await deleteTaskFromRoutine(selected.id, taskId);
+    showToast("Task deleted");
     closeModal();
   };
 
+  
   const onSync = () => {
+    if (!watch) {
+      showToast("No watch connected. Please check Bluetooth.", "error");
+      return;
+    }
     setSyncToast(true);
     setTimeout(() => setSyncToast(false), 2500);
+    showToast("Routine synced to watch!");
   };
-
   const openCreateRoutine = (preset?: { name: string; startTime: string }) => {
     setRoutineDraft(preset ?? DEFAULT_ROUTINE_DRAFT);
     setIsRoutineModalOpen(true);
@@ -157,6 +178,7 @@ export function ScheduleScreen({ selectedId, onSelect }: {
       name: routineDraft.name.trim(),
       startTime: routineDraft.startTime,
     });
+    showToast("Routine created!");
     setIsRoutineModalOpen(false);
     onSelect(routineId);
   };
@@ -168,6 +190,7 @@ export function ScheduleScreen({ selectedId, onSelect }: {
       const remaining = routines.filter(r => r.id !== routineId);
       if (remaining.length > 0) onSelect(remaining[0]!.id);
     }
+    showToast("Routine deleted");
   };
 
   const modalOpen = editingTaskId !== null;
@@ -194,7 +217,7 @@ export function ScheduleScreen({ selectedId, onSelect }: {
             }}
           >
             <AppIcon name="plus" size={12} color={APP.brand}/>
-            New
+            Add Routine
           </button>
         }>
           Routines
@@ -388,6 +411,20 @@ export function ScheduleScreen({ selectedId, onSelect }: {
           </div>
         )}
 
+        {/* Global Toast Message */}
+        {toast && (
+          <div style={{
+            position: 'fixed', top: 100, left: '50%', transform: 'translateX(-50%)',
+            padding: '12px 20px', borderRadius: 10, zIndex: 1000,
+            background: toast.type === 'success' ? APP.brand : APP.accent,
+            color: '#fff', fontWeight: 700, fontSize: 13, boxShadow: APP.shadowLg,
+            display: 'flex', alignItems: 'center', gap: 10, minWidth: 200
+          }}>
+            <AppIcon name={toast.type === 'success' ? 'star' : 'x'} size={16} color="#fff"/>
+            {toast.msg}
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: 10 }}>
           <Btn variant="secondary" icon={<AppIcon name="plus" size={14}/>} full onClick={openAdd}>
             Add task
@@ -422,6 +459,8 @@ export function ScheduleScreen({ selectedId, onSelect }: {
     </>
   );
 }
+
+
 
 function RoutineModal({
   draft,
@@ -486,7 +525,7 @@ function RoutineModal({
         <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
           <Btn variant="secondary" full onClick={onCancel}>Cancel</Btn>
           <Btn variant="primary" full onClick={onSave} style={{ opacity: valid ? 1 : 0.45 }}>
-            Create &amp; Add Tasks
+            Create Routine
           </Btn>
         </div>
       </div>
@@ -585,10 +624,34 @@ function TaskModal({ draft, onChange, onSave, onCancel, isEdit, onDelete }: {
             <FieldLabel>Duration (min)</FieldLabel>
             <input
               type="number"
-              min={1} max={180}
-              value={draft.expectedMinutes}
-              onChange={e => set({ expectedMinutes: Math.max(1, Math.min(180, Number(e.target.value))) })}
-              style={{ ...inputStyle, fontFamily: APP.fontMono }}
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={draft.expectedMinutes === 0 ? '' : draft.expectedMinutes} 
+              placeholder="0"
+              onChange={e => {
+                const val = e.target.value;
+                // Allow empty string so the user can backspace everything
+                if (val === '') {
+                  set({ expectedMinutes: '' as any });
+                  return;
+                }
+                const num = parseInt(val, 10);
+                if (!isNaN(num)) {
+                  set({ expectedMinutes: Math.min(180, num) });
+                }
+              }}
+              onBlur={() => {
+                // If the value is falsy (empty string or 0), reset to 5
+                if (!draft.expectedMinutes || Number(draft.expectedMinutes) < 1) {
+                  set({ expectedMinutes: 5 });
+                }
+              }}
+              style={{ 
+                ...inputStyle, 
+                textAlign: 'center', 
+                fontFamily: APP.fontMono,
+                flex: 1 
+              }}
             />
           </div>
         </div>

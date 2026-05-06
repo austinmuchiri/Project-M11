@@ -75,8 +75,10 @@ export interface TimekeeperClient {
   getSettings(kidId: string): Promise<KidSettings>;
   saveSettings(kidId: string, patch: Partial<KidSettings>): Promise<void>;
   createDevice(d: { kidId: string; kind: DeviceKind; label: string }): Promise<Device>;
+  deleteDevice(deviceId: string): Promise<void>;
 
-  createRoutine(routine: Routine): Promise<void>;
+
+  createRoutine(routine: Routine): Promise<Routine>;
   updateRoutine(routineId: string, patch: { active?: boolean; tasks?: Routine['tasks']; name?: string; startTime?: string }): Promise<void>;
   deleteRoutine(routineId: string): Promise<void>;
   recordEvent(ev: TaskEvent): Promise<void>;
@@ -108,6 +110,7 @@ class SupabaseImpl implements TimekeeperClient {
 
   async getSession(): Promise<AuthSession | null> {
     const { data } = await this.sb.auth.getSession();
+    console.log("userId:", data.session?.user.id);
     if (!data.session) return null;
     return { userId: data.session.user.id, email: data.session.user.email ?? '' };
   }
@@ -157,7 +160,7 @@ class SupabaseImpl implements TimekeeperClient {
 
   async routines(kidId: string): Promise<Routine[]> {
     const { data, error } = await this.sb
-      .from('routines').select('*').eq('kid_id', kidId);
+      .from('routines').select(`*,tasks (*)`).eq('kid_id', kidId);
     if (error) throw error;
     return (data ?? []).map(rowToRoutine);
   }
@@ -236,29 +239,120 @@ class SupabaseImpl implements TimekeeperClient {
     return { id, kidId: d.kidId, kind: d.kind, label: d.label, lastSeen: now, paired: true };
   }
 
-  async createRoutine(r: Routine) {
-    const { error } = await this.sb.from('routines').insert({
+  async deleteDevice(deviceId: string): Promise<void> {
+    const { error } = await this.sb.from('devices').delete().eq('id', deviceId);
+    if (error) throw error;
+  }
+
+  async createRoutine(r: Routine): Promise<Routine> {
+  console.log("📤 Attempting to insert routine:", r);
+
+  // Step 1: Insert routine
+  const { data: routine, error } = await this.sb
+    .from('routines')
+    .insert({
       id: r.id,
       kid_id: r.kidId,
       name: r.name,
-      tasks: r.tasks,
-      days_of_week: r.daysOfWeek,
-      start_time: r.startTime,
       active: r.active,
-    });
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("❌ Routine insert failed:", error);
+    throw error;
+  }
+
+  // Step 2: Insert tasks
+  if (r.tasks && r.tasks.length > 0) {
+    const tasksToInsert = r.tasks.map((t, index) => ({
+      id: t.id,
+      routine_id: r.id,
+      kid_id: r.kidId,
+      label: t.label,
+      icon: t.icon,
+      scheduled_time: t.scheduledTime,
+      expected_minutes: t.expectedMinutes,
+      reward_stars: t.rewardStars ?? 1,
+      position: index,
+    }));
+
+    const { error: taskError } = await this.sb
+      .from('tasks')
+      .insert(tasksToInsert);
+
+    if (taskError) {
+      console.error("❌ Task insert failed:", taskError);
+      throw taskError;
+    }
+
+    console.log("✅ Tasks inserted:", tasksToInsert);
+  }
+
+  console.log("✅ Routine inserted:", routine);
+
+  return {
+    ...routine,
+    tasks: r.tasks ?? [],
+  };
+}
+
+  async updateRoutine(routineId: string,
+    patch: {
+      active?: boolean;
+      name?: string;
+      tasks?: Routine['tasks'];
+    }
+  ): Promise<void> {
+
+  // Step 1: Update routine fields ONLY
+  const routineRow: Record<string, unknown> = {};
+
+  if (patch.active !== undefined) routineRow.active = patch.active;
+  if (patch.name !== undefined) routineRow.name = patch.name;
+
+  if (Object.keys(routineRow).length > 0) {
+    const { error } = await this.sb
+      .from('routines')
+      .update(routineRow)
+      .eq('id', routineId);
 
     if (error) throw error;
   }
 
-  async updateRoutine(routineId: string, patch: { active?: boolean; tasks?: Routine['tasks']; name?: string; startTime?: string }): Promise<void> {
-    const row: Record<string, unknown> = {};
-    if (patch.active !== undefined) row.active = patch.active;
-    if (patch.tasks !== undefined) row.tasks = patch.tasks;
-    if (patch.name !== undefined) row.name = patch.name;
-    if (patch.startTime !== undefined) row.start_time = patch.startTime;
-    const { error } = await this.sb.from('routines').update(row).eq('id', routineId);
-    if (error) throw error;
+  // Step 2: Handle tasks separately
+  if (patch.tasks) {
+    // 🚨 Strategy: simplest safe approach → DELETE + REINSERT
+
+    // 2a. Delete existing tasks
+    const { error: deleteError } = await this.sb
+      .from('tasks')
+      .delete()
+      .eq('routine_id', routineId);
+
+    if (deleteError) throw deleteError;
+
+    // 2b. Reinsert new tasks
+    const tasksToInsert = patch.tasks.map((t, index) => ({
+      id: t.id,
+      routine_id: routineId,
+      kid_id: t.kidId, // MUST exist on your Task model
+      label: t.label,
+      icon: t.icon,
+      scheduled_time: t.scheduledTime,
+      expected_minutes: t.expectedMinutes,
+      reward_stars: t.rewardStars ?? 1,
+      position: index,
+    }));
+
+    const { error: insertError } = await this.sb
+      .from('tasks')
+      .insert(tasksToInsert);
+
+    if (insertError) throw insertError;
   }
+}
 
   async deleteRoutine(routineId: string): Promise<void> {
     const { error } = await this.sb.from('routines').delete().eq('id', routineId);
@@ -355,22 +449,30 @@ class MockImpl implements TimekeeperClient {
   private blockCommandListeners = new Set<Listener<BlockCommand>>();
   private authListeners = new Set<(s: AuthSession | null) => void>();
   private session: AuthSession | null = { userId: 'mock-user', email: 'demo@local' };
-
+ 
   constructor() {
     const ls = getLocalStorage();
     if (ls) {
       try {
-        const saved = ls.getItem('tk_events');
-        if (saved) this.eventsStore = JSON.parse(saved) as TaskEvent[];
-      } catch { /* ignore */ }
+        // Load everything from storage
+        const savedEvents = ls.getItem('tk_events');
+        const savedRoutines = ls.getItem('tk_routines');
+        const savedDevices = ls.getItem('tk_devices');
+        const savedSettings = ls.getItem('tk_settings');
+
+        if (savedEvents) this.eventsStore = JSON.parse(savedEvents);
+        if (savedRoutines) this.routinesStore = JSON.parse(savedRoutines);
+        if (savedDevices) this.devicesStore = JSON.parse(savedDevices);
+        if (savedSettings) this.settingsStore = JSON.parse(savedSettings);
+      } catch (e) { console.error("Mock load failed", e); }
     }
   }
 
-  private persist() {
+  private persist(key: 'tk_events' | 'tk_routines' | 'tk_devices' | 'tk_settings', data: any) {
     const ls = getLocalStorage();
     if (!ls) return;
-    try { ls.setItem('tk_events', JSON.stringify(this.eventsStore)); }
-    catch { /* ignore */ }
+    try { ls.setItem(key, JSON.stringify(data)); }
+    catch (e) { console.warn(`Mock save failed for ${key}`, e); }
   }
 
   async getSession() { return this.session; }
@@ -393,43 +495,59 @@ class MockImpl implements TimekeeperClient {
   }
 
   async routines(kidId: string) { return this.routinesStore.filter(r => r.kidId === kidId); }
+
   async events(kidId: string, sinceTs = 0) {
     return this.eventsStore.filter(e => e.kidId === kidId && e.ts >= sinceTs);
   }
   async devices(kidId: string) { return this.devicesStore.filter(d => d.kidId === kidId); }
+
   async alerts(kidId: string) { return this.alertsStore.filter(a => a.kidId === kidId); }
+
   async heartbeat(_kidId: string) { return this.heartbeatStore; }
 
   async getSettings(_kidId: string): Promise<KidSettings> { return { ...this.settingsStore }; }
+
   async saveSettings(_kidId: string, patch: Partial<KidSettings>): Promise<void> {
     this.settingsStore = { ...this.settingsStore, ...patch };
+    this.persist('tk_settings', this.settingsStore);  
   }
+  
   async createDevice(d: { kidId: string; kind: DeviceKind; label: string }): Promise<Device> {
     const device: Device = {
       id: `dev_${d.kind}_${Date.now()}`, kidId: d.kidId, kind: d.kind,
       label: d.label, lastSeen: Date.now(), paired: true,
     };
     this.devicesStore.push(device);
+    this.persist('tk_devices', this.devicesStore);
     return device;
   }
 
-  async createRoutine(r: Routine) {
-    this.routinesStore.push(r);
+  async deleteDevice(deviceId: string): Promise<void> {
+    this.devicesStore = this.devicesStore.filter(d => d.id !== deviceId);
+    this.persist('tk_devices', this.devicesStore);
   }
 
-  async updateRoutine(routineId: string, patch: { active?: boolean; tasks?: Routine['tasks']; name?: string; startTime?: string }) {
+  async createRoutine(r: Routine): Promise<Routine> {
+      this.routinesStore.push(r);
+      this.persist('tk_routines', this.routinesStore);
+      return r;
+  }
+
+  async updateRoutine(routineId: string, patch: any) {
     this.routinesStore = this.routinesStore.map(r =>
       r.id === routineId ? { ...r, ...patch } : r
     );
+    this.persist('tk_routines', this.routinesStore);
   }
 
   async deleteRoutine(routineId: string) {
     this.routinesStore = this.routinesStore.filter(r => r.id !== routineId);
+    this.persist('tk_routines', this.routinesStore);
   }
 
   async recordEvent(ev: TaskEvent) {
     this.eventsStore.push(ev);
-    this.persist();
+    this.persist('tk_events', this.eventsStore);
     this.eventListeners.forEach(l => l(ev));
   }
 
@@ -446,10 +564,12 @@ class MockImpl implements TimekeeperClient {
     this.eventListeners.add(cb);
     return () => { this.eventListeners.delete(cb); };
   }
+
   subscribeHeartbeat(_kidId: string, cb: Listener<LaptopHeartbeat>) {
     this.heartbeatListeners.add(cb);
     return () => { this.heartbeatListeners.delete(cb); };
   }
+
   subscribeNudges(_kidId: string, cb: Listener<Nudge>) {
     this.nudgeListeners.add(cb);
     return () => { this.nudgeListeners.delete(cb); };
@@ -528,8 +648,15 @@ function rowToRoutine(r: Record<string, unknown>): Routine {
     id: r.id as string,
     kidId: r.kid_id as string,
     name: r.name as string,
-    tasks: (r.tasks as Routine['tasks']) ?? [],
-    daysOfWeek: (r.days_of_week as number[]) ?? [],
+    tasks: (Array.isArray(r.tasks) ? r.tasks : []).map((t: any) => ({
+      id: t.id,
+      kidId: t.kid_id ?? r.kid_id,
+      label: t.label,
+      icon: t.icon,
+      scheduledTime: t.scheduled_time,
+      expectedMinutes: t.expected_minutes,
+      rewardStars: t.reward_stars,
+    })),
     startTime: r.start_time as string,
     active: r.active as boolean,
   };

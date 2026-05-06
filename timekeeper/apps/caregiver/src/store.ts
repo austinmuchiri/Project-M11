@@ -1,7 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import {
   createTimekeeperClient, MOCK_KID, DEFAULT_KID_SETTINGS,
-  type TimekeeperClient, type AuthSession, type KidProfile, type KidSettings,
+  type TimekeeperClient, type AuthSession, type KidProfile, type KidSettings, 
 } from '@timekeeper/supabase-client';
 import type {
   Routine, Task, TaskEvent, Device, Alert, LaptopHeartbeat, Nudge, BlockCommand, DeviceKind,
@@ -56,6 +56,11 @@ const subscribe = (l: () => void) => { listeners.add(l); return () => { listener
 
 export const set = (patch: Partial<State>) => {
   state = { ...state, ...patch };
+
+  // persist key offline data
+  if (patch.routines) localStorage.setItem("tk_routines", JSON.stringify(patch.routines));
+  if (patch.events) localStorage.setItem("tk_events", JSON.stringify(patch.events));
+
   listeners.forEach(l => l());
 };
 
@@ -65,6 +70,7 @@ export const set = (patch: Partial<State>) => {
 // otherwise it loops. Selectors like resolveTodayTasks build a fresh
 // array each call — without this cache, every render schedules another.
 const selectorCache = new WeakMap<(s: State) => unknown, { state: State; result: unknown }>();
+
 function memo<T>(selector: (s: State) => T): T {
   const hit = selectorCache.get(selector as (s: State) => unknown);
   if (hit && hit.state === state) return hit.result as T;
@@ -77,8 +83,101 @@ export function useStore<T>(selector: (s: State) => T): T {
   return useSyncExternalStore(subscribe, () => memo(selector), () => memo(selector));
 }
 
+/* ─────────────────────────────────────────────
+   OFFLINE QUEUE SYSTEM
+──────────────────────────────────────────── */
+type Mutation =
+  | { id: string; type: "createRoutine"; payload: Routine }
+  | { id: string; type: "updateRoutine"; payload: { id: string; patch: Partial<Routine> } }
+  | { id: string; type: "deleteRoutine"; payload: { id: string } }
+  | { id: string; type: "updateTasks"; payload: { routineId: string; tasks: Task[] } }
+  | { id: string; type: "recordEvent"; payload: TaskEvent };
+
+const mutationQueue: Mutation[] = JSON.parse(
+  localStorage.getItem("tk_queue") || "[]"
+);
+
+function persistQueue() {
+  localStorage.setItem("tk_queue", JSON.stringify(mutationQueue));
+}
+
+type MutationInput = Omit<Mutation, "id">;
+
+function queueMutation(item: MutationInput) {
+  mutationQueue.push({
+    ...item,
+    id: crypto.randomUUID(),
+  } as Mutation);
+
+  persistQueue();
+}
+
+
+async function flushQueue() {
+  const client = getClient();
+
+  const queueSnapshot = [...mutationQueue];
+
+  for (const item of queueSnapshot) {
+    try {
+      switch (item.type) {
+        case "createRoutine":
+          await client.createRoutine(item.payload);
+          break;
+
+        case "updateRoutine":
+          await client.updateRoutine(item.payload.id, item.payload.patch);
+          break;
+
+        case "deleteRoutine":
+          await client.deleteRoutine(item.payload.id);
+          break;
+
+        case "updateTasks":
+          await client.updateRoutine(item.payload.routineId, {
+            tasks: item.payload.tasks,
+          });
+          break;
+
+        case "recordEvent":
+          await client.recordEvent(item.payload);
+          break;
+      }
+
+      // only remove AFTER success
+      const index = mutationQueue.findIndex(m => m.id === item.id);
+      if (index !== -1) mutationQueue.splice(index, 1);
+      persistQueue();
+
+    } catch (err) {
+      console.warn("Sync failed, will retry later:", item, err);
+      // DO NOT break → allows remaining queue to continue
+      continue;
+    }
+  }
+
+  persistQueue();
+}
+
+window.addEventListener("online", flushQueue);
+
+
+// Safe Wrapper
+
+async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    console.warn("Offline fallback triggered:", e);
+    return fallback;
+  }
+}
+
+
+
 let bootstrapped = false;
 let unsubAuth: (() => void) | null = null;
+let unsubHeartbeat: (() => void) | null = null;
 
 // store.ts
 
@@ -90,7 +189,7 @@ export async function bootstrapAuth() {
   try {
     const client = getClient();
     console.log("📡 Checking session...");
-    
+     
     // CHANGE THIS LINE: Use client.getSession() instead of client.auth.getSession()
     const session = await client.getSession().catch(err => {
         console.error("Auth session fetch failed", err);
@@ -129,60 +228,85 @@ async function loadKidData() {
 
     console.log("📡 Fetching routines, events, etc...");
     const [routines, events, devices, alerts, heartbeat, settings] = await Promise.all([
-      getClient().routines(kid.id),
-      getClient().events(kid.id, Date.now() - 7 * 24 * 60 * 60 * 1000),
-      getClient().devices(kid.id),
-      getClient().alerts(kid.id),
-      getClient().heartbeat(kid.id),
-      getClient().getSettings(kid.id),
+      safe(() => getClient().routines(kid.id), []),
+      safe(() => getClient().events(kid.id, Date.now() - 7 * 24 * 60 * 60 * 1000), []),
+      safe(() => getClient().devices(kid.id), []),
+      safe(() => getClient().alerts(kid.id), []),
+      safe(() => getClient().heartbeat(kid.id), null),
+      safe(() => getClient().getSettings(kid.id), DEFAULT_KID_SETTINGS),
     ]);
 
     console.log("✅ Data fetch complete!");
     set({ ready: true, kid, routines, events, devices, alerts, heartbeat, settings, bootstrapError: null });
-    // ... rest of subs
+    
+    // Live heartbeat subscription — caregiver app updates in real-time as
+    // the laptop monitor pushes focus data without requiring a manual refresh.
+    if (unsubHeartbeat) unsubHeartbeat();
+    unsubHeartbeat = getClient().subscribeHeartbeat(kid.id, (hb) => {
+      set({ heartbeat: hb });
+    });
+
   } catch (err) {
     console.error("❌ Bootstrap failed:", err);
-    set({ ready: true, bootstrapError: err instanceof Error ? err.message : 'Failed to load' });
+    set({
+      ready: true,
+      bootstrapError: err instanceof Error ? err.message : 'No Internet Connection',
+    });
   }
 }
 
 export async function signOut() {
   await getClient().signOut();
   if (unsubAuth) { unsubAuth(); unsubAuth = null; }
+  if (unsubHeartbeat) { unsubHeartbeat(); unsubHeartbeat = null; }
   bootstrapped = false;
 }
 
 export async function recordEvent(ev: TaskEvent) {
-  await getClient().recordEvent(ev);
-  if (getClient().isMock) set({ events: [...state.events, ev] });
+  set({ events: [...state.events, ev] });
+
+  try {
+    await getClient().recordEvent(ev);
+  } catch {
+    queueMutation({ type: "recordEvent", payload: ev });
+  }
 }
 
 export async function sendNudge(n: Nudge) { await getClient().sendNudge(n); }
 
 export async function createRoutine(params: { id: string; name: string; startTime: string }) {
-  const newRoutine: Routine = {
+  const routine: Routine = {
     id: params.id,
     kidId: state.kid.id,
     name: params.name,
-    startTime: params.startTime,
     tasks: [],
-    daysOfWeek: [1, 2, 3, 4, 5, 6, 7],
+    startTime: params.startTime,
     active: true,
   };
 
-  // Optimistic update
-  set({ routines: [...state.routines, newRoutine] });
-  await getClient().createRoutine(newRoutine);
+  set({ routines: [...state.routines, routine] });
+
+  try {
+    await getClient().createRoutine(routine);
+  } catch {
+    queueMutation({ type: "createRoutine", payload: routine });
+  }
 }
 
 /**
  * Updates basic routine metadata (name, startTime, active status)
  */
+
 export async function updateRoutine(id: string, patch: Partial<Routine>) {
   set({
-    routines: state.routines.map(r => r.id === id ? { ...r, ...patch } : r)
+    routines: state.routines.map(r => r.id === id ? { ...r, ...patch } : r),
   });
-  await getClient().updateRoutine(id, patch);
+
+  try {
+    await getClient().updateRoutine(id, patch);
+  } catch {
+    queueMutation({ type: "updateRoutine", payload: { id, patch } });
+  }
 }
 
 export async function toggleRoutineActive(routineId: string) {
@@ -217,37 +341,86 @@ export async function pairDevice(kind: DeviceKind, label: string, code?: string)
   set({ devices: [...state.devices, device] });
 }
 
+export async function removeDevice(deviceId: string) {
+  set({ devices: state.devices.filter(d => d.id !== deviceId) });
+  await getClient().deleteDevice(deviceId);
+}
+
 export function awardStars(amount: number) {
   set({ bonusStars: state.bonusStars + amount });
 }
 
 export async function deleteRoutine(routineId: string) {
-  set({ routines: state.routines.filter(r => r.id !== routineId) });
-  await getClient().deleteRoutine(routineId);
+  set({
+    routines: state.routines.filter(r => r.id !== routineId),
+  });
+
+  try {
+    await getClient().deleteRoutine(routineId);
+  } catch {
+    queueMutation({ type: "deleteRoutine", payload: { id: routineId } });
+  }
+}
+
+
+
+export async function addTaskToRoutine(routineId: string, task: Task) {
+  const r = state.routines.find(r => r.id === routineId);
+  if (!r) return;
+
+  const tasks = [...r.tasks, task];
+
+  set({
+    routines: state.routines.map(r =>
+      r.id === routineId ? { ...r, tasks } : r
+    ),
+  });
+
+  try {
+    await getClient().updateRoutine(routineId, { tasks });
+  } catch {
+    queueMutation({ type: "updateTasks", payload: { routineId, tasks } });
+  }
+}
+
+export async function updateTaskInRoutine(routineId: string,taskId: string,patch: Partial<Task>) {
+  const r = state.routines.find(r => r.id === routineId);
+  if (!r) return;
+
+  const tasks = r.tasks.map(t =>
+    t.id === taskId ? { ...t, ...patch } : t
+  );
+
+  set({
+    routines: state.routines.map(r =>
+      r.id === routineId ? { ...r, tasks } : r
+    ),
+  });
+
+  try {
+    await getClient().updateRoutine(routineId, { tasks });
+  } catch {
+    queueMutation({ type: "updateTasks", payload: { routineId, tasks } });
+  }
 }
 
 export async function deleteTaskFromRoutine(routineId: string, taskId: string) {
   const r = state.routines.find(r => r.id === routineId);
   if (!r) return;
+
   const tasks = r.tasks.filter(t => t.id !== taskId);
-  set({ routines: state.routines.map(r => r.id === routineId ? { ...r, tasks } : r) });
-  await getClient().updateRoutine(routineId, { tasks });
-}
 
-export async function addTaskToRoutine(routineId: string, task: Task) {
-  const r = state.routines.find(r => r.id === routineId);
-  if (!r) return;
-  const tasks = [...r.tasks, task];
-  set({ routines: state.routines.map(r => r.id === routineId ? { ...r, tasks } : r) });
-  await getClient().updateRoutine(routineId, { tasks });
-}
+  set({
+    routines: state.routines.map(r =>
+      r.id === routineId ? { ...r, tasks } : r
+    ),
+  });
 
-export async function updateTaskInRoutine(routineId: string, taskId: string, patch: Partial<Task>) {
-  const r = state.routines.find(r => r.id === routineId);
-  if (!r) return;
-  const tasks = r.tasks.map(t => t.id === taskId ? { ...t, ...patch } : t);
-  set({ routines: state.routines.map(r => r.id === routineId ? { ...r, tasks } : r) });
-  await getClient().updateRoutine(routineId, { tasks });
+  try {
+    await getClient().updateRoutine(routineId, { tasks });
+  } catch {
+    queueMutation({ type: "updateTasks", payload: { routineId, tasks } });
+  }
 }
 
 export async function lockLaptop(kidId: string, task?: { taskId: string; label: string; expectedMinutes: number }) {
@@ -278,7 +451,18 @@ export async function blockApp(kidId: string, appName: string, task?: { taskId: 
 }
 
 export function useBootstrap() {
-  useEffect(() => { void bootstrapAuth(); }, []);
+  useEffect(() => {
+    void bootstrapAuth();
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("online", flushQueue);
+    flushQueue(); // run once on boot
+
+    return () => {
+      window.removeEventListener("online", flushQueue);
+    };
+  }, []);
 }
 
 // ─────────────────────────────────────────────────────────

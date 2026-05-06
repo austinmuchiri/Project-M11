@@ -1,7 +1,7 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, powerMonitor } from 'electron';
+import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, powerMonitor, dialog } from 'electron';
 import * as path from 'node:path';
 import { startWatcher, stopWatcher, getCurrentSnapshot, type WatcherSnapshot } from './watcher';
-import { showLockscreen, hideLockscreen, isLockscreenVisible } from './lockscreen';
+import { showLockscreen, hideLockscreen, isLockscreenVisible, getLockscreenWindow } from './lockscreen';
 import { showAppBlock, hideAppBlock, isAppBlockVisible } from './app-block';
 import { initClient, pushHeartbeat, subscribeNudges, subscribeBlockCommands, sendBlockCommand } from './client';
 import { loadPairing, clearPairing } from './pairing';
@@ -14,9 +14,21 @@ let popup: BrowserWindow | null = null;
 let activeBlock: BlockCommand | null = null;
 // App name to intercept (set on block_app command)
 let blockedAppName: string | null = null;
+// True when the child has requested an unlock but the caregiver hasn't granted it yet
+let unlockPending = false;
+// Must be set to true before app.quit() so before-quit doesn't cancel it
+let allowQuit = false;
+
+// Subscription cleanup functions — stored so unpair() can tear them down cleanly
+let unsubNudges: (() => void) | null = null;
+let unsubBlocks: (() => void) | null = null;
 
 const TRAY_ICON_GREEN = path.join(__dirname, '..', 'assets', 'tray-green.png');
 const TRAY_ICON_GREY  = path.join(__dirname, '..', 'assets', 'tray-grey.png');
+
+// Marker embedded in child-originated unlock requests so the local subscription
+// and caregiver app can distinguish them from a caregiver-issued grant.
+const KID_UNLOCK_MARKER = '[Kid requested unlock]';
 
 app.whenReady().then(async () => {
   // Hide dock on macOS — this is a tray-only utility
@@ -38,23 +50,17 @@ async function startApp() {
     checkAppBlock(snap);
   });
 
-  const pairing = loadPairing();
-  if (pairing) {
-    subscribeNudges(pairing.kidId, (n) => {
-      console.log('[main] nudge received:', n.message);
-    });
-
-    // Subscribe to caregiver block commands — pure command receiver
-    subscribeBlockCommands(pairing.kidId, (cmd) => {
-      console.log('[main] block command:', cmd.action, cmd.payload);
-      handleBlockCommand(cmd);
-      refreshTray(getCurrentSnapshot());
-    });
-  }
+  setupSubscriptions();
 
   // Quit handlers — tray-only app, never auto-quits when no windows
   app.on('window-all-closed', () => { /* keep tray alive */ });
-  app.on('before-quit', () => { stopWatcher(); });
+
+  // Intercept quit attempts (e.g. Cmd+Q, dock quit on macOS) so the child
+  // cannot bypass monitoring. The tray "Quit" item sets allowQuit first.
+  app.on('before-quit', (event) => {
+    if (!allowQuit) event.preventDefault();
+  });
+  app.on('will-quit', () => { stopWatcher(); });
 
   // System events
   powerMonitor.on('lock-screen',   () => onSystemEvent({ kind: 'lock' }));
@@ -65,11 +71,33 @@ async function startApp() {
   // Renderer ↔ main bridge for the popup
   ipcMain.handle('tk:get-snapshot', () => getCurrentSnapshot());
   ipcMain.handle('tk:get-pairing',  () => loadPairing());
-  ipcMain.handle('tk:unpair', () => { clearPairing(); app.relaunch(); app.exit(0); });
-  ipcMain.handle('tk:show-lock',  (_e, opts: { taskLabel: string; expectedSec: number }) => {
+  ipcMain.handle('tk:unpair', () => unpair());
+  ipcMain.handle('tk:show-lock', (_e, opts: { taskLabel: string; expectedSec: number }) => {
     showLockscreen(opts.taskLabel, opts.expectedSec);
   });
   ipcMain.handle('tk:hide-lock', () => hideLockscreen());
+}
+
+function setupSubscriptions() {
+  const pairing = loadPairing();
+  if (!pairing) return;
+
+  unsubNudges = subscribeNudges(pairing.kidId, (n) => {
+    console.log('[main] nudge received:', n.message);
+  });
+
+  unsubBlocks = subscribeBlockCommands(pairing.kidId, (cmd) => {
+    console.log('[main] block command:', cmd.action, cmd.payload);
+    handleBlockCommand(cmd);
+    refreshTray(getCurrentSnapshot());
+  });
+}
+
+function teardownSubscriptions() {
+  unsubNudges?.();
+  unsubNudges = null;
+  unsubBlocks?.();
+  unsubBlocks = null;
 }
 
 function buildTray() {
@@ -94,26 +122,28 @@ function refreshTray(snap: WatcherSnapshot | null) {
     ? `${snap.focus.app} · ${snap.focus.category}`
     : 'idle';
 
-  const blockStatusLabel = activeBlock?.action === 'lock_screen'
-    ? `🔒 Lock active · ${activeBlock.payload?.taskLabel ?? 'Focus time'}`
+  const blockLabel = activeBlock?.action === 'lock_screen'
+    ? `🔒 ${activeBlock.payload?.taskLabel ?? 'Focus time'}${unlockPending ? ' · Unlock requested…' : ''}`
     : activeBlock?.action === 'block_app'
       ? `🚫 ${activeBlock.payload?.appName ?? 'App'} blocked`
       : null;
 
   const menuItems: Electron.MenuItemConstructorOptions[] = [
     { label: paired ? `Paired · ${loadPairing()!.kidName}` : 'Not paired', enabled: false },
-    blockStatusLabel
-      ? { label: blockStatusLabel, enabled: false }
+    blockLabel
+      ? { label: blockLabel, enabled: false }
       : { label: focusLine, enabled: false },
     { label: snap ? `${snap.idleSec}s idle` : 'no data', enabled: false },
     { type: 'separator' },
     { label: 'Show status…', click: () => togglePopup() },
     ...(activeBlock
-      ? [{ label: 'Request unlock…', click: () => requestUnlock() }]
-      : [{ label: 'Test lockscreen', click: () => showLockscreen('Brush Teeth', 180) }]),
+      ? [{ label: unlockPending ? 'Unlock requested (waiting…)' : 'Request unlock…',
+           enabled: !unlockPending,
+           click: () => requestUnlock() }]
+      : [{ label: 'Test lockscreen', click: () => showLockscreen('Focus time', 180) }]),
     { type: 'separator' },
     { label: paired ? 'Unpair…' : 'Pair with caregiver…', click: () => paired ? unpair() : pair() },
-    { label: 'Quit', click: () => { stopWatcher(); app.exit(0); } },
+    { label: 'Quit', click: () => confirmQuit() },
   ];
 
   tray.setContextMenu(Menu.buildFromTemplate(menuItems));
@@ -122,7 +152,7 @@ function refreshTray(snap: WatcherSnapshot | null) {
   const next = nativeImage.createFromPath(iconPath);
   if (!next.isEmpty()) tray.setImage(next);
 
-  tray.setToolTip(blockStatusLabel ?? `Routine Tracker · ${focusLine}`);
+  tray.setToolTip(blockLabel ?? `Routine Tracker · ${focusLine}`);
 }
 
 function handleBlockCommand(cmd: BlockCommand) {
@@ -130,13 +160,21 @@ function handleBlockCommand(cmd: BlockCommand) {
     case 'lock_screen':
       activeBlock = cmd;
       blockedAppName = null;
+      unlockPending = false;
       hideAppBlock();
-      showLockscreen(cmd.payload?.taskLabel ?? 'Focus time', cmd.payload?.expectedSec ?? 180);
+      showLockscreen(
+        cmd.payload?.taskLabel ?? 'Focus time',
+        cmd.payload?.expectedSec ?? 180,
+      );
       break;
 
     case 'unlock_screen':
+      // Skip kid-originated requests bouncing back from realtime — only a
+      // caregiver-issued grant (no KID_UNLOCK_MARKER) should drop the overlay.
+      if (cmd.payload?.taskLabel === KID_UNLOCK_MARKER) break;
       activeBlock = null;
       blockedAppName = null;
+      unlockPending = false;
       hideLockscreen();
       hideAppBlock();
       break;
@@ -144,12 +182,13 @@ function handleBlockCommand(cmd: BlockCommand) {
     case 'block_app':
       activeBlock = cmd;
       blockedAppName = cmd.payload?.appName ?? null;
-      // The watcher tick will show the overlay when the blocked app is in focus
+      unlockPending = false;
       break;
 
     case 'unblock_app':
       activeBlock = null;
       blockedAppName = null;
+      unlockPending = false;
       hideAppBlock();
       break;
   }
@@ -157,8 +196,12 @@ function handleBlockCommand(cmd: BlockCommand) {
 
 function checkAppBlock(snap: WatcherSnapshot) {
   if (!blockedAppName) return;
-  const appName = snap.focus?.app ?? '';
-  const matched = appName.toLowerCase().includes(blockedAppName.toLowerCase());
+  const focusApp = snap.focus?.app ?? '';
+  // Use start-anchored matching so "Roblox" correctly matches "RobloxPlayer"
+  // but doesn't false-positive on unrelated apps (unlike a bare includes()).
+  const needle = blockedAppName.toLowerCase();
+  const hay = focusApp.toLowerCase();
+  const matched = hay === needle || hay.startsWith(needle + ' ') || hay.startsWith(needle + '.');
   if (matched && !isAppBlockVisible()) {
     showAppBlock(blockedAppName, activeBlock?.payload?.taskLabel ?? 'your routine');
   } else if (!matched && isAppBlockVisible()) {
@@ -168,17 +211,33 @@ function checkAppBlock(snap: WatcherSnapshot) {
 
 async function requestUnlock() {
   const pairing = loadPairing();
-  if (!pairing) return;
-  // Send an unlock_screen command back — caregiver app sees it via subscribeBlockCommands audit
+  if (!pairing || unlockPending) return;
+
+  unlockPending = true;
+  refreshTray(getCurrentSnapshot());
+  notifyLockscreen('pending');
+
+  // Send a request tagged with KID_UNLOCK_MARKER so the local subscription
+  // (and the caregiver app) can distinguish it from a real caregiver grant.
+  // The overlay stays visible until the caregiver explicitly sends unlock_screen.
   await sendBlockCommand({
     kidId: pairing.kidId,
     action: 'unlock_screen',
-    payload: { taskLabel: '[Kid requested unlock from laptop]' },
+    payload: { taskLabel: KID_UNLOCK_MARKER },
     createdAt: Date.now(),
-  }).catch((err) => console.error('[main] request unlock failed', err));
-  // Also clear local block state so the overlay drops immediately
-  handleBlockCommand({ kidId: pairing.kidId, action: 'unlock_screen', createdAt: Date.now() });
-  refreshTray(getCurrentSnapshot());
+  }).catch((err) => {
+    console.error('[main] request unlock failed', err);
+    unlockPending = false;
+    refreshTray(getCurrentSnapshot());
+    notifyLockscreen('locked');
+  });
+}
+
+function notifyLockscreen(state: 'locked' | 'pending') {
+  const lockWin = getLockscreenWindow();
+  if (lockWin && !lockWin.isDestroyed()) {
+    lockWin.webContents.send('tk:lock-state', state);
+  }
 }
 
 function togglePopup() {
@@ -206,9 +265,33 @@ function pair() {
 }
 
 function unpair() {
+  // Tear down subscriptions before clearing pairing so the old kidId
+  // channels don't receive stale commands after re-pairing.
+  teardownSubscriptions();
   clearPairing();
-  app.relaunch();
-  app.exit(0);
+  activeBlock = null;
+  blockedAppName = null;
+  unlockPending = false;
+  hideLockscreen();
+  hideAppBlock();
+  if (popup && !popup.isDestroyed()) { popup.close(); popup = null; }
+  refreshTray(null);
+}
+
+function confirmQuit() {
+  const choice = dialog.showMessageBoxSync({
+    type: 'question',
+    buttons: ['Cancel', 'Stop monitoring'],
+    defaultId: 0,
+    cancelId: 0,
+    message: 'Stop TimeKeeper monitoring?',
+    detail: 'Your caregiver will no longer receive focus updates.',
+  });
+  if (choice === 1) {
+    allowQuit = true;
+    stopWatcher();
+    app.quit();
+  }
 }
 
 async function onSnapshot(snap: WatcherSnapshot) {
@@ -227,5 +310,19 @@ async function onSnapshot(snap: WatcherSnapshot) {
 
 function onSystemEvent(ev: { kind: 'lock' | 'unlock' | 'sleep' | 'wake' }) {
   console.log('[main] system:', ev.kind);
-  // The watcher's polled `locked` flag will pick this up on its next tick.
+  const pairing = loadPairing();
+  if (!pairing) return;
+  // Push an immediate heartbeat so the caregiver app reflects the true device
+  // state without waiting for the next watcher poll interval.
+  const snap = getCurrentSnapshot();
+  const locked = ev.kind === 'lock' || ev.kind === 'sleep';
+  void pushHeartbeat({
+    deviceId: pairing.deviceId,
+    kidId: pairing.kidId,
+    ts: Date.now(),
+    focus: snap?.focus ?? null,
+    idleSec: snap?.idleSec ?? 0,
+    locked,
+    audioActive: false,
+  }).catch((err) => console.error('[main] system event heartbeat failed', err));
 }

@@ -3,14 +3,48 @@ import type { LaptopHeartbeat, Nudge, BlockCommand } from '@timekeeper/schema';
 
 let client: TimekeeperClient | null = null;
 
+// Heartbeats buffered while the device is offline. On the next successful
+// push the queue is drained oldest-first so the caregiver's timeline has no
+// permanent gaps — just a delayed flush rather than lost data.
+const offlineQueue: LaptopHeartbeat[] = [];
+const MAX_QUEUE = 50;
+
 export function initClient() {
   client = createTimekeeperClient();
   console.log(`[client] mode: ${client.isMock ? 'MOCK' : 'SUPABASE'}`);
 }
 
+async function flushQueue(): Promise<void> {
+  if (!client || offlineQueue.length === 0) return;
+  const batch = offlineQueue.splice(0);
+  for (const h of batch) {
+    try {
+      await client.pushHeartbeat(h);
+    } catch {
+      // Still offline — put the remainder back and stop trying
+      offlineQueue.unshift(h);
+      break;
+    }
+  }
+  if (offlineQueue.length === 0) {
+    console.log('[client] offline queue flushed');
+  }
+}
+
 export async function pushHeartbeat(h: LaptopHeartbeat): Promise<void> {
   if (!client) return;
-  await client.pushHeartbeat(h);
+  // Try to drain any queued entries first so they arrive in order
+  if (offlineQueue.length > 0) {
+    await flushQueue();
+  }
+  try {
+    await client.pushHeartbeat(h);
+  } catch (err) {
+    offlineQueue.push(h);
+    // Cap queue size to avoid unbounded memory growth during long offline periods
+    if (offlineQueue.length > MAX_QUEUE) offlineQueue.shift();
+    console.warn(`[client] offline – heartbeat queued (${offlineQueue.length} pending)`);
+  }
 }
 
 export function subscribeNudges(kidId: string, cb: (n: Nudge) => void): () => void {
