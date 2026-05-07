@@ -9,6 +9,12 @@ let client: TimekeeperClient | null = null;
 const offlineQueue: LaptopHeartbeat[] = [];
 const MAX_QUEUE = 50;
 
+// ─── connection state ────────────────────────────────────────────────────────
+// Optimistic: assume connected until the first heartbeat failure.
+let connected = true;
+export function isConnected(): boolean { return connected; }
+export function getQueueDepth(): number { return offlineQueue.length; }
+
 export function initClient() {
   client = createTimekeeperClient();
   console.log(`[client] mode: ${client.isMock ? 'MOCK' : 'SUPABASE'}`);
@@ -20,8 +26,8 @@ async function flushQueue(): Promise<void> {
   for (const h of batch) {
     try {
       await client.pushHeartbeat(h);
+      connected = true;
     } catch {
-      // Still offline — put the remainder back and stop trying
       offlineQueue.unshift(h);
       break;
     }
@@ -33,15 +39,15 @@ async function flushQueue(): Promise<void> {
 
 export async function pushHeartbeat(h: LaptopHeartbeat): Promise<void> {
   if (!client) return;
-  // Try to drain any queued entries first so they arrive in order
   if (offlineQueue.length > 0) {
     await flushQueue();
   }
   try {
     await client.pushHeartbeat(h);
+    connected = true;
   } catch (err) {
+    connected = false;
     offlineQueue.push(h);
-    // Cap queue size to avoid unbounded memory growth during long offline periods
     if (offlineQueue.length > MAX_QUEUE) offlineQueue.shift();
     console.warn(`[client] offline – heartbeat queued (${offlineQueue.length} pending)`);
   }

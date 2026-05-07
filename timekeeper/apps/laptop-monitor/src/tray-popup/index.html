@@ -94,6 +94,10 @@
     </div>
     <div class="meta" id="device-id">—</div>
     <div class="meta" id="hardware-id" style="margin-top: 3px; color: var(--ink-dim);">—</div>
+    <div style="margin-top: 8px; display: flex; align-items: center; gap: 5px;">
+      <span id="net-dot" style="width: 7px; height: 7px; border-radius: 50%; background: var(--ink-dim); flex-shrink: 0;"></span>
+      <span id="net-text" style="font-size: 11px; color: var(--ink-dim); font-family: var(--font-mono);">checking…</span>
+    </div>
   </div>
 </main>
 
@@ -110,7 +114,7 @@
     const tk = window.tk;
     if (!tk) { $('status-badge').textContent = 'no bridge'; return; }
 
-    const [snap, pairing] = await Promise.all([tk.getSnapshot(), tk.getPairing()]);
+    const [snap, pairing, conn] = await Promise.all([tk.getSnapshot(), tk.getPairing(), tk.getConnection()]);
 
     if (pairing) {
       $('status-badge').textContent = 'paired';
@@ -118,12 +122,25 @@
       $('paired-name').textContent = pairing.kidName;
       $('device-id').textContent = 'ID: ' + pairing.deviceId;
       $('hardware-id').textContent = 'HW: ' + (pairing.hardwareId ?? '—');
+
       $('link-text').textContent = 'live';
     } else {
       $('status-badge').textContent = 'unpaired';
       $('status-badge').style.background = '#F4E2C9';
       $('paired-name').textContent = '—';
       $('link-text').textContent = 'offline';
+    }
+
+    if (conn) {
+      const dot = $('net-dot');
+      const txt = $('net-text');
+      if (conn.connected) {
+        dot.style.background = 'var(--brand)';
+        txt.textContent = 'Supabase connected';
+      } else {
+        dot.style.background = 'var(--warn)';
+        txt.textContent = conn.queued > 0 ? `Offline · ${conn.queued} buffered` : 'Offline';
+      }
     }
 
     if (snap) {

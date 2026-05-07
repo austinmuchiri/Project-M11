@@ -126,7 +126,7 @@ create table if not exists block_commands (
   id          uuid primary key default gen_random_uuid(),
   kid_id      text references kids(id) on delete cascade,
   device_id   text references devices(id),
-  action      text not null check (action in ('lock_screen','unlock_screen','block_app','unblock_app')),
+  action      text not null check (action in ('lock_screen','unlock_screen','block_app','unblock_app','request_unlock','extend_time')),
   payload     jsonb,
   expires_at  bigint,
   created_at  bigint not null

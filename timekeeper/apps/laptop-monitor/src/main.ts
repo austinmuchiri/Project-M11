@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { startWatcher, stopWatcher, getCurrentSnapshot, type WatcherSnapshot } from './watcher';
 import { showLockscreen, hideLockscreen, isLockscreenVisible, getLockscreenWindow } from './lockscreen';
 import { showAppBlock, hideAppBlock, isAppBlockVisible } from './app-block';
-import { initClient, pushHeartbeat, registerDevice, subscribeNudges, subscribeBlockCommands, sendBlockCommand } from './client';
+import { initClient, pushHeartbeat, registerDevice, isConnected, getQueueDepth, subscribeNudges, subscribeBlockCommands, sendBlockCommand } from './client';
 import { loadPairing, clearPairing, getOrCreateDeviceIdentity } from './pairing';
 import type { BlockCommand } from '@timekeeper/schema';
 
@@ -26,9 +26,6 @@ let unsubBlocks: (() => void) | null = null;
 const TRAY_ICON_GREEN = path.join(__dirname, '..', 'assets', 'tray-green.png');
 const TRAY_ICON_GREY  = path.join(__dirname, '..', 'assets', 'tray-grey.png');
 
-// Marker embedded in child-originated unlock requests so the local subscription
-// and caregiver app can distinguish them from a caregiver-issued grant.
-const KID_UNLOCK_MARKER = '[Kid requested unlock]';
 
 app.whenReady().then(async () => {
   // Hide dock on macOS — this is a tray-only utility
@@ -78,7 +75,8 @@ async function startApp() {
   powerMonitor.on('resume',        () => onSystemEvent({ kind: 'wake' }));
 
   // Renderer ↔ main bridge for the popup
-  ipcMain.handle('tk:get-snapshot', () => getCurrentSnapshot());
+  ipcMain.handle('tk:get-snapshot',    () => getCurrentSnapshot());
+  ipcMain.handle('tk:get-connection',  () => ({ connected: isConnected(), queued: getQueueDepth() }));
   ipcMain.handle('tk:get-pairing',  () => {
     const pairing = loadPairing();
     if (!pairing) return null;
@@ -144,8 +142,15 @@ function refreshTray(snap: WatcherSnapshot | null) {
       ? `🚫 ${activeBlock.payload?.appName ?? 'App'} blocked`
       : null;
 
+  const online = isConnected();
+  const queued = getQueueDepth();
+  const connLabel = online
+    ? '● Connected'
+    : queued > 0 ? `○ Offline · ${queued} buffered` : '○ Offline';
+
   const menuItems: Electron.MenuItemConstructorOptions[] = [
     { label: paired ? `Paired · ${loadPairing()!.kidName}` : 'Not paired', enabled: false },
+    { label: connLabel, enabled: false },
     blockLabel
       ? { label: blockLabel, enabled: false }
       : { label: focusLine, enabled: false },
@@ -185,14 +190,24 @@ function handleBlockCommand(cmd: BlockCommand) {
       break;
 
     case 'unlock_screen':
-      // Skip kid-originated requests bouncing back from realtime — only a
-      // caregiver-issued grant (no KID_UNLOCK_MARKER) should drop the overlay.
-      if (cmd.payload?.taskLabel === KID_UNLOCK_MARKER) break;
       activeBlock = null;
       blockedAppName = null;
       unlockPending = false;
       hideLockscreen();
       hideAppBlock();
+      break;
+
+    case 'request_unlock':
+      // Echo of our own unlock request bouncing back from realtime — ignore.
+      break;
+
+    case 'extend_time':
+      if (activeBlock) {
+        showLockscreen(
+          activeBlock.payload?.taskLabel ?? 'Focus time',
+          cmd.payload?.expectedSec ?? 300,
+        );
+      }
       break;
 
     case 'block_app':
@@ -233,13 +248,12 @@ async function requestUnlock() {
   refreshTray(getCurrentSnapshot());
   notifyLockscreen('pending');
 
-  // Send a request tagged with KID_UNLOCK_MARKER so the local subscription
-  // (and the caregiver app) can distinguish it from a real caregiver grant.
-  // The overlay stays visible until the caregiver explicitly sends unlock_screen.
+  // Send a request_unlock command so the caregiver app can show a pending
+  // request notification. The overlay stays up until the caregiver explicitly
+  // sends unlock_screen.
   await sendBlockCommand({
     kidId: pairing.kidId,
-    action: 'unlock_screen',
-    payload: { taskLabel: KID_UNLOCK_MARKER },
+    action: 'request_unlock',
     createdAt: Date.now(),
   }).catch((err) => {
     console.error('[main] request unlock failed', err);

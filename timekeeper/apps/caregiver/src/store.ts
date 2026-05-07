@@ -32,6 +32,8 @@ export interface State {
   activeBlock: BlockCommand | null;
   settings: KidSettings;
   bonusStars: number;
+  setupMode: boolean;
+  pendingUnlockRequests: BlockCommand[];
 }
 
 let state: State = {
@@ -48,6 +50,8 @@ let state: State = {
   activeBlock: null,
   settings: DEFAULT_KID_SETTINGS,
   bonusStars: 0,
+  setupMode: false,
+  pendingUnlockRequests: [],
 };
 
 
@@ -178,6 +182,7 @@ async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 let bootstrapped = false;
 let unsubAuth: (() => void) | null = null;
 let unsubHeartbeat: (() => void) | null = null;
+let unsubIncomingBlocks: (() => void) | null = null;
 
 // store.ts
 
@@ -218,11 +223,8 @@ async function loadKidData() {
     console.log("👦 Kid resolved:", kid);
 
     if (!kid) {
-      console.warn("⚠️ No kid found!");
-      set({
-        ready: true, // IMPORTANT: Ensure this is true even if kid is missing
-        bootstrapError: 'No kid profile found. Please add one to the database.',
-      });
+      console.warn("⚠️ No kid found — entering setup mode");
+      set({ ready: true, setupMode: true, bootstrapError: null });
       return;
     }
 
@@ -239,11 +241,19 @@ async function loadKidData() {
     console.log("✅ Data fetch complete!");
     set({ ready: true, kid, routines, events, devices, alerts, heartbeat, settings, bootstrapError: null });
     
-    // Live heartbeat subscription — caregiver app updates in real-time as
-    // the laptop monitor pushes focus data without requiring a manual refresh.
+    // Live heartbeat subscription
     if (unsubHeartbeat) unsubHeartbeat();
     unsubHeartbeat = getClient().subscribeHeartbeat(kid.id, (hb) => {
       set({ heartbeat: hb });
+    });
+
+    // Subscribe to incoming block commands so the caregiver UI can surface
+    // request_unlock notifications sent by the laptop.
+    if (unsubIncomingBlocks) unsubIncomingBlocks();
+    unsubIncomingBlocks = getClient().subscribeBlockCommands(kid.id, (cmd) => {
+      if (cmd.action === 'request_unlock') {
+        set({ pendingUnlockRequests: [...state.pendingUnlockRequests, cmd] });
+      }
     });
 
   } catch (err) {
@@ -259,7 +269,18 @@ export async function signOut() {
   await getClient().signOut();
   if (unsubAuth) { unsubAuth(); unsubAuth = null; }
   if (unsubHeartbeat) { unsubHeartbeat(); unsubHeartbeat = null; }
+  if (unsubIncomingBlocks) { unsubIncomingBlocks(); unsubIncomingBlocks = null; }
   bootstrapped = false;
+}
+
+export function dismissUnlockRequest(cmdId: string | undefined) {
+  set({ pendingUnlockRequests: state.pendingUnlockRequests.filter(r => r.id !== cmdId) });
+}
+
+export async function completeSetup() {
+  set({ setupMode: false, bootstrapError: null });
+  bootstrapped = false;
+  await bootstrapAuth();
 }
 
 export async function recordEvent(ev: TaskEvent) {

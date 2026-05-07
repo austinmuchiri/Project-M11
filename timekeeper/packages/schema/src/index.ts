@@ -190,7 +190,11 @@ export function categorize(processName: string, title?: string): AppCategory {
 // One source of truth: all locks/unblocks are rows; both sides subscribe.
 // ─────────────────────────────────────────────────────────
 
-export const BlockAction = z.enum(['lock_screen', 'unlock_screen', 'block_app', 'unblock_app']);
+export const BlockAction = z.enum([
+  'lock_screen', 'unlock_screen', 'block_app', 'unblock_app',
+  'request_unlock', // laptop → caregiver: child requesting unlock approval
+  'extend_time',    // caregiver → laptop: grant N more seconds on the lock screen
+]);
 export type BlockAction = z.infer<typeof BlockAction>;
 
 export const BlockCommand = z.object({
