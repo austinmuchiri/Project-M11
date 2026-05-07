@@ -1,37 +1,77 @@
 import { app } from 'electron';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { MOCK_KID_ID } from '@timekeeper/supabase-client';
+
+export interface DeviceIdentity {
+  deviceId: string;
+  hardwareId: string; // first non-loopback MAC address (no colons, lowercase)
+}
 
 export interface Pairing {
   kidId: string;
   kidName: string;
   deviceId: string;
   pairedAt: number;
-  // Real Supabase: token issued by the caregiver app at pair time.
   token?: string;
+  hardwareId?: string; // merged from device.json at runtime, not stored here
 }
 
-const FILE = (() => {
-  const dir = app.getPath('userData');
-  return path.join(dir, 'pairing.json');
-})();
+const DATA_DIR = app.getPath('userData');
+const FILE        = path.join(DATA_DIR, 'pairing.json');
+const DEVICE_FILE = path.join(DATA_DIR, 'device.json');
+
+function readHardwareMac(): string {
+  const ifaces = os.networkInterfaces();
+  for (const addrs of Object.values(ifaces)) {
+    for (const addr of addrs ?? []) {
+      if (!addr.internal && addr.mac && addr.mac !== '00:00:00:00:00:00') {
+        return addr.mac.replace(/:/g, '').toLowerCase();
+      }
+    }
+  }
+  return randomUUID().replace(/-/g, '').slice(0, 12); // last-resort fallback
+}
+
+export function getOrCreateDeviceIdentity(): DeviceIdentity {
+  try {
+    if (fs.existsSync(DEVICE_FILE)) {
+      const data = JSON.parse(fs.readFileSync(DEVICE_FILE, 'utf8')) as Partial<DeviceIdentity>;
+      if (data.deviceId && data.hardwareId) return data as DeviceIdentity;
+    }
+    const identity: DeviceIdentity = {
+      deviceId: `dev_laptop_${randomUUID().replace(/-/g, '').slice(0, 12)}`,
+      hardwareId: readHardwareMac(),
+    };
+    fs.writeFileSync(DEVICE_FILE, JSON.stringify(identity, null, 2));
+    return identity;
+  } catch {
+    return { deviceId: `dev_laptop_${Date.now()}`, hardwareId: 'unknown' };
+  }
+}
 
 export function loadPairing(): Pairing | null {
   try {
     if (!fs.existsSync(FILE)) {
-      // For demo: auto-pair to mock kid so the watcher actually pushes.
       if (process.env.TIMEKEEPER_DEMO !== 'false') {
+        const identity = getOrCreateDeviceIdentity();
         const auto: Pairing = {
           kidId: MOCK_KID_ID, kidName: 'Munene',
-          deviceId: 'dev_laptop_munene', pairedAt: Date.now(),
+          deviceId: identity.deviceId, hardwareId: identity.hardwareId,
+          pairedAt: Date.now(),
         };
         fs.writeFileSync(FILE, JSON.stringify(auto, null, 2));
         return auto;
       }
       return null;
     }
-    return JSON.parse(fs.readFileSync(FILE, 'utf8')) as Pairing;
+    const pairing = JSON.parse(fs.readFileSync(FILE, 'utf8')) as Pairing;
+    // Always override deviceId and hardwareId from the stable device.json so
+    // pairing.json written by an older version (with Date.now() IDs) is healed.
+    const identity = getOrCreateDeviceIdentity();
+    return { ...pairing, deviceId: identity.deviceId, hardwareId: identity.hardwareId };
   } catch {
     return null;
   }

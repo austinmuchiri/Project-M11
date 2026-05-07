@@ -3,8 +3,8 @@ import * as path from 'node:path';
 import { startWatcher, stopWatcher, getCurrentSnapshot, type WatcherSnapshot } from './watcher';
 import { showLockscreen, hideLockscreen, isLockscreenVisible, getLockscreenWindow } from './lockscreen';
 import { showAppBlock, hideAppBlock, isAppBlockVisible } from './app-block';
-import { initClient, pushHeartbeat, subscribeNudges, subscribeBlockCommands, sendBlockCommand } from './client';
-import { loadPairing, clearPairing } from './pairing';
+import { initClient, pushHeartbeat, registerDevice, subscribeNudges, subscribeBlockCommands, sendBlockCommand } from './client';
+import { loadPairing, clearPairing, getOrCreateDeviceIdentity } from './pairing';
 import type { BlockCommand } from '@timekeeper/schema';
 
 let tray: Tray | null = null;
@@ -44,6 +44,15 @@ app.whenReady().then(async () => {
 
 async function startApp() {
   buildTray();
+
+  // Stamp hardware ID into the device row so the caregiver can verify identity.
+  // Runs silently — a failed registration never blocks monitoring.
+  const pairing = loadPairing();
+  if (pairing) {
+    const identity = getOrCreateDeviceIdentity();
+    void registerDevice(identity.deviceId, identity.hardwareId);
+  }
+
   await startWatcher((snap) => {
     void onSnapshot(snap);
     refreshTray(snap);
@@ -70,7 +79,14 @@ async function startApp() {
 
   // Renderer ↔ main bridge for the popup
   ipcMain.handle('tk:get-snapshot', () => getCurrentSnapshot());
-  ipcMain.handle('tk:get-pairing',  () => loadPairing());
+  ipcMain.handle('tk:get-pairing',  () => {
+    const pairing = loadPairing();
+    if (!pairing) return null;
+    // loadPairing() already merges deviceId + hardwareId from device.json,
+    // but we call getOrCreateDeviceIdentity() explicitly to guarantee freshness.
+    const identity = getOrCreateDeviceIdentity();
+    return { ...pairing, deviceId: identity.deviceId, hardwareId: identity.hardwareId };
+  });
   ipcMain.handle('tk:unpair', () => unpair());
   ipcMain.handle('tk:show-lock', (_e, opts: { taskLabel: string; expectedSec: number }) => {
     showLockscreen(opts.taskLabel, opts.expectedSec);

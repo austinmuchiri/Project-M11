@@ -324,17 +324,16 @@ export async function saveSettings(patch: Partial<KidSettings>) {
 
 export async function pairDevice(kind: DeviceKind, label: string, code?: string) {
   const client = getClient();
-  // const state = get();
-
-  // Fix: Use 'any' to bypass strict schema checks for the custom 'pairingCode'
-  const payload: any = {
+  const payload: { kidId: string; kind: DeviceKind; label: string; id?: string; pairingCode?: string } = {
     kidId: state.kid.id,
     kind,
     label,
   };
 
-  if (code) {
-    payload.pairingCode = code; // This goes to Supabase for the watch to verify[cite: 2]
+  if (kind === 'laptop' && code) {
+    payload.id = code; // device ID copied from the tray popup — used as the DB primary key
+  } else if (kind === 'watch' && code) {
+    payload.pairingCode = code; // 4-digit PIN shown on watch display
   }
 
   const device = await client.createDevice(payload);

@@ -93,6 +93,7 @@
       <span class="pill"><span class="dot"></span><span id="link-text">linking…</span></span>
     </div>
     <div class="meta" id="device-id">—</div>
+    <div class="meta" id="hardware-id" style="margin-top: 3px; color: var(--ink-dim);">—</div>
   </div>
 </main>
 
@@ -115,7 +116,8 @@
       $('status-badge').textContent = 'paired';
       $('status-badge').style.background = '#D7E4DB';
       $('paired-name').textContent = pairing.kidName;
-      $('device-id').textContent = pairing.deviceId;
+      $('device-id').textContent = 'ID: ' + pairing.deviceId;
+      $('hardware-id').textContent = 'HW: ' + (pairing.hardwareId ?? '—');
       $('link-text').textContent = 'live';
     } else {
       $('status-badge').textContent = 'unpaired';

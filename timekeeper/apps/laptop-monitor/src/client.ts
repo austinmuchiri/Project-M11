@@ -47,6 +47,16 @@ export async function pushHeartbeat(h: LaptopHeartbeat): Promise<void> {
   }
 }
 
+export async function registerDevice(deviceId: string, hardwareId: string): Promise<void> {
+  if (!client) return;
+  try {
+    await client.registerDevice(deviceId, hardwareId);
+    console.log('[client] device registered:', deviceId, 'hw:', hardwareId);
+  } catch (err) {
+    console.warn('[client] device registration failed:', err);
+  }
+}
+
 export function subscribeNudges(kidId: string, cb: (n: Nudge) => void): () => void {
   if (!client) return () => {};
   return client.subscribeNudges(kidId, cb);

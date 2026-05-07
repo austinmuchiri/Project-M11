@@ -70,7 +70,8 @@ export interface TimekeeperClient {
 
   getSettings(kidId: string): Promise<KidSettings>;
   saveSettings(kidId: string, patch: Partial<KidSettings>): Promise<void>;
-  createDevice(d: { kidId: string; kind: DeviceKind; label: string }): Promise<Device>;
+  createDevice(d: { kidId: string; kind: DeviceKind; label: string; id?: string; hardwareId?: string }): Promise<Device>;
+  registerDevice(deviceId: string, hardwareId: string): Promise<void>;
   deleteDevice(deviceId: string): Promise<void>;
 
 
@@ -98,8 +99,9 @@ class SupabaseImpl implements TimekeeperClient {
   isMock = false;
   private sb: SupabaseClient;
 
-  constructor(url: string, anonKey: string) {
-    this.sb = createClient(url, anonKey, {
+  constructor(url: string, key: string, serviceRole = false) {
+    this.sb = createClient(url, key, {
+      auth: serviceRole ? { persistSession: false, autoRefreshToken: false } : undefined,
       realtime: { params: { eventsPerSecond: 5 } },
     });
   }
@@ -220,15 +222,25 @@ class SupabaseImpl implements TimekeeperClient {
     } catch { /* degrade gracefully if table missing */ }
   }
 
-  async createDevice(d: { kidId: string; kind: DeviceKind; label: string }): Promise<Device> {
-    const id  = `dev_${d.kind}_${Date.now()}`;
+  async createDevice(d: { kidId: string; kind: DeviceKind; label: string; id?: string; hardwareId?: string }): Promise<Device> {
+    const id  = d.id ?? `dev_${d.kind}_${Date.now()}`;
     const now = Date.now();
-    const { error } = await this.sb.from('devices').insert({
+    const row: Record<string, unknown> = {
       id, kid_id: d.kidId, kind: d.kind, label: d.label,
       last_seen: now, paired: true,
-    });
+    };
+    if (d.hardwareId) row.hardware_id = d.hardwareId;
+    const { error } = await this.sb.from('devices').upsert(row, { onConflict: 'id' });
     if (error) throw error;
     return { id, kidId: d.kidId, kind: d.kind, label: d.label, lastSeen: now, paired: true };
+  }
+
+  async registerDevice(deviceId: string, hardwareId: string): Promise<void> {
+    const { error } = await this.sb
+      .from('devices')
+      .update({ hardware_id: hardwareId, last_seen: Date.now() })
+      .eq('id', deviceId);
+    if (error) console.warn('[supabase] registerDevice failed:', error.message);
   }
 
   async deleteDevice(deviceId: string): Promise<void> {
@@ -504,14 +516,26 @@ class MockImpl implements TimekeeperClient {
     this.persist('tk_settings', this.settingsStore);  
   }
   
-  async createDevice(d: { kidId: string; kind: DeviceKind; label: string }): Promise<Device> {
+  async createDevice(d: { kidId: string; kind: DeviceKind; label: string; id?: string; hardwareId?: string }): Promise<Device> {
     const device: Device = {
-      id: `dev_${d.kind}_${Date.now()}`, kidId: d.kidId, kind: d.kind,
+      id: d.id ?? `dev_${d.kind}_${Date.now()}`, kidId: d.kidId, kind: d.kind,
       label: d.label, lastSeen: Date.now(), paired: true,
+      hardwareId: d.hardwareId,
     };
-    this.devicesStore.push(device);
+    const existing = this.devicesStore.findIndex(x => x.id === device.id);
+    if (existing >= 0) this.devicesStore[existing] = device;
+    else this.devicesStore.push(device);
     this.persist('tk_devices', this.devicesStore);
     return device;
+  }
+
+  async registerDevice(deviceId: string, hardwareId: string): Promise<void> {
+    const device = this.devicesStore.find(d => d.id === deviceId);
+    if (device) {
+      device.hardwareId = hardwareId;
+      device.lastSeen = Date.now();
+      this.persist('tk_devices', this.devicesStore);
+    }
   }
 
   async deleteDevice(deviceId: string): Promise<void> {
@@ -584,19 +608,21 @@ class MockImpl implements TimekeeperClient {
 export interface ClientConfig {
   url?: string;
   anonKey?: string;
+  serviceRoleKey?: string;
   forceMock?: boolean;
 }
 
 export function createTimekeeperClient(cfg: ClientConfig = {}): TimekeeperClient {
-  const url = cfg.url ?? readEnv('VITE_SUPABASE_URL') ?? readEnv('SUPABASE_URL');
-  const key = cfg.anonKey ?? readEnv('VITE_SUPABASE_ANON_KEY') ?? readEnv('SUPABASE_ANON_KEY');
+  const url        = cfg.url            ?? readEnv('SUPABASE_URL')              ?? readEnv('VITE_SUPABASE_URL');
+  const serviceKey = cfg.serviceRoleKey ?? readEnv('SUPABASE_SERVICE_ROLE_KEY');
+  const anonKey    = cfg.anonKey        ?? readEnv('SUPABASE_ANON_KEY')         ?? readEnv('VITE_SUPABASE_ANON_KEY');
+  const key        = serviceKey ?? anonKey;
   const demo = readEnv('TIMEKEEPER_DEMO') === 'true' || readEnv('VITE_TIMEKEEPER_DEMO') === 'true';
-
 
   if (cfg.forceMock || demo || !url || !key || url.includes('your-project-ref')) {
     return new MockImpl();
   }
-  return new SupabaseImpl(url, key);
+  return new SupabaseImpl(url, key, !!serviceKey);
 }
 
 // Browser builds (Vite) call setBrowserEnv() once at app start to stash
@@ -679,6 +705,7 @@ function rowToDevice(r: Record<string, unknown>): Device {
     id: r.id as string, kidId: r.kid_id as string, kind: r.kind as Device['kind'],
     label: r.label as string, battery: r.battery as number | undefined,
     lastSeen: r.last_seen as number, fwVersion: r.fw_version as string | undefined,
+    hardwareId: r.hardware_id as string | undefined,
     paired: r.paired as boolean,
   };
 }

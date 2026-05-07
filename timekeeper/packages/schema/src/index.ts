@@ -70,6 +70,7 @@ export const Device = z.object({
   battery: z.number().min(0).max(100).optional(),
   lastSeen: z.number().int(),
   fwVersion: z.string().optional(),
+  hardwareId: z.string().optional(),
   paired: z.boolean(),
 });
 export type Device = z.infer<typeof Device>;

@@ -66,14 +66,15 @@ on task_events (kid_id, ts desc);
 -- =========================
 
 create table if not exists devices (
-  id          text primary key,
-  kid_id      text references kids(id) on delete cascade,
-  kind        text not null check (kind in ('watch','laptop','phone')),
-  label       text not null,
-  battery     int,
-  last_seen   bigint,
-  fw_version  text,
-  paired      boolean not null default false
+  id           text primary key,
+  kid_id       text references kids(id) on delete cascade,
+  kind         text not null check (kind in ('watch','laptop','phone')),
+  label        text not null,
+  battery      int,
+  last_seen    bigint,
+  fw_version   text,
+  hardware_id  text,
+  paired       boolean not null default false
 );
 
 -- =========================
