@@ -27,6 +27,7 @@ export interface KidProfile {
   age: number;
   initials: string;
   avatarColor: string;
+  dateOfBirth?: string; // ISO 'YYYY-MM-DD', stored as Postgres date
 }
 
 export interface KidSettings {
@@ -60,6 +61,7 @@ export interface TimekeeperClient {
   // Resolve the active kid for the signed-in user. Single-kid for now;
   // returns the first kids row owned by the user. Returns null if none.
   resolveKid(): Promise<KidProfile | null>;
+  updateKid(kidId: string, patch: { name?: string; initials?: string; dateOfBirth?: string }): Promise<void>;
 
   // Data
   routines(kidId: string): Promise<Routine[]>;
@@ -89,6 +91,15 @@ export interface TimekeeperClient {
   // Block commands — caregiver writes, laptop reads via realtime
   sendBlockCommand(cmd: BlockCommand): Promise<void>;
   subscribeBlockCommands(kidId: string, cb: (cmd: BlockCommand) => void): () => void;
+}
+
+function calcAge(dob: string): number {
+  const birth = new Date(dob);
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const m = now.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age--;
+  return Math.max(0, age);
 }
 
 // ─────────────────────────────────────────────────────────
@@ -149,11 +160,26 @@ class SupabaseImpl implements TimekeeperClient {
       .from('kids').select('*').limit(1).maybeSingle();
     if (error) throw error;
     if (!data) return null;
+    const dob: string | undefined = data.date_of_birth ?? undefined;
     return {
-      id: data.id, name: data.name, age: data.age ?? 8,
+      id: data.id, name: data.name,
+      age: dob ? calcAge(dob) : (data.age ?? 8),
       initials: data.initials ?? data.name[0]?.toUpperCase() ?? '?',
       avatarColor: data.avatar_color ?? '#C99466',
+      dateOfBirth: dob,
     };
+  }
+
+  async updateKid(kidId: string, patch: { name?: string; initials?: string; dateOfBirth?: string }): Promise<void> {
+    const row: Record<string, unknown> = {};
+    if (patch.name      !== undefined) row.name     = patch.name;
+    if (patch.initials  !== undefined) row.initials = patch.initials;
+    if (patch.dateOfBirth !== undefined) {
+      row.date_of_birth = patch.dateOfBirth;
+      row.age = calcAge(patch.dateOfBirth); // keep legacy column in sync
+    }
+    const { error } = await this.sb.from('kids').update(row).eq('id', kidId);
+    if (error) throw error;
   }
 
   async routines(kidId: string): Promise<Routine[]> {
@@ -494,8 +520,22 @@ class MockImpl implements TimekeeperClient {
     this.authListeners.add(cb);
     return () => { this.authListeners.delete(cb); };
   }
+  private mockKid: KidProfile = {
+    id: MOCK_KID_ID, name: 'Munene', age: 8, initials: 'M',
+    avatarColor: '#C99466', dateOfBirth: '2016-03-15',
+  };
+
   async resolveKid(): Promise<KidProfile | null> {
-    return { id: MOCK_KID_ID, name: 'Munene', age: 8, initials: 'M', avatarColor: '#C99466' };
+    return { ...this.mockKid };
+  }
+
+  async updateKid(_kidId: string, patch: { name?: string; initials?: string; dateOfBirth?: string }): Promise<void> {
+    if (patch.name      !== undefined) this.mockKid.name     = patch.name;
+    if (patch.initials  !== undefined) this.mockKid.initials = patch.initials;
+    if (patch.dateOfBirth !== undefined) {
+      this.mockKid.dateOfBirth = patch.dateOfBirth;
+      this.mockKid.age = calcAge(patch.dateOfBirth);
+    }
   }
 
   async routines(kidId: string) { return this.routinesStore.filter(r => r.kidId === kidId); }

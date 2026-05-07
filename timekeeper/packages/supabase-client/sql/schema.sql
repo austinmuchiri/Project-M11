@@ -12,13 +12,14 @@ drop table tasks cascade;
 -- =========================
 
 create table if not exists kids (
-  id            text primary key,
-  user_id       uuid references auth.users(id) on delete cascade,
-  name          text not null,
-  age           int,
-  initials      text,
-  avatar_color  text default '#C99466',
-  created_at    timestamptz default now()
+  id              text primary key,
+  user_id         uuid references auth.users(id) on delete cascade,
+  name            text not null,
+  age             int,
+  date_of_birth   date,
+  initials        text,
+  avatar_color    text default '#C99466',
+  created_at      timestamptz default now()
 );
 
 create table if not exists routines (
