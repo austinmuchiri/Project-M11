@@ -9,7 +9,6 @@ import type { DeviceKind } from '@timekeeper/schema';
 const KIND_META: Record<DeviceKind, { icon: IconName; color: string }> = {
   watch:  { icon: 'watch',  color: APP.brand },
   laptop: { icon: 'laptop', color: APP.info },
-  phone:  { icon: 'bell',   color: APP.accent },
 };
 
 export function SettingsScreen({ onRewards }: { onRewards: () => void }) {
@@ -297,42 +296,41 @@ export function SettingsScreen({ onRewards }: { onRewards: () => void }) {
           </div>
         </div>
 
-        {([
-          {
-            k: 'qh' as const,
-            label: 'Quiet hours',
-            detail: `${settings.quietStart} → ${settings.quietEnd}`,
-            val: settings.quietHours,
-            onChange: (v: boolean) => saveSettings({ quietHours: v }),
-          },
-          {
-            k: 'np' as const,
-            label: 'Mirror alerts to nanny',
-            detail: 'Sara · primary co-caregiver',
-            val: settings.escalateNanny,
-            onChange: (v: boolean) => saveSettings({ escalateNanny: v }),
-          },
-          {
-            k: 'h' as const,
-            label: 'Haptic-only on watch',
-            detail: 'Suppress sound, keep vibration',
-            val: settings.hapticOnly,
-            onChange: (v: boolean) => saveSettings({ hapticOnly: v }),
-          },
-        ]).map((row, i, arr) => (
-          <div key={row.k} style={{
-            display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
-            borderBottom: i === arr.length - 1 ? 'none' : `1px solid ${APP.border}`,
-          }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 800, color: APP.ink }}>{row.label}</div>
-              <div style={{ fontSize: 11, color: APP.inkDim, marginTop: 1 }}>{row.detail}</div>
+          <div style={{ padding: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: APP.ink }}>Quiet hours</div>
+              <div style={{ fontSize: 11, color: APP.inkDim, marginTop: 1 }}>No notifications during these hours</div>
             </div>
             <div onClick={e => e.stopPropagation()}>
-              <Toggle on={row.val} onChange={row.onChange}/>
+              <Toggle on={settings.quietHours} onChange={v => saveSettings({ quietHours: v })}/>
             </div>
           </div>
-        ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, color: APP.inkDim, fontWeight: 700, minWidth: 30 }}>From</span>
+            <input
+              type="time"
+              value={settings.quietStart}
+              onChange={e => saveSettings({ quietStart: e.target.value })}
+              style={{
+                flex: 1, padding: '6px 8px', borderRadius: 8,
+                border: `1.5px solid ${APP.border}`, background: APP.bgSoft,
+                fontFamily: APP.fontMono, fontSize: 13, color: APP.ink, outline: 'none',
+              }}
+            />
+            <span style={{ fontSize: 11, color: APP.inkDim, fontWeight: 700, minWidth: 12 }}>to</span>
+            <input
+              type="time"
+              value={settings.quietEnd}
+              onChange={e => saveSettings({ quietEnd: e.target.value })}
+              style={{
+                flex: 1, padding: '6px 8px', borderRadius: 8,
+                border: `1.5px solid ${APP.border}`, background: APP.bgSoft,
+                fontFamily: APP.fontMono, fontSize: 13, color: APP.ink, outline: 'none',
+              }}
+            />
+          </div>
+        </div>
       </Card>
 
       <SectionTitle>Focus &amp; blocking</SectionTitle>

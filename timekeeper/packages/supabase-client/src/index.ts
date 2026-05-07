@@ -34,8 +34,6 @@ export interface KidSettings {
   quietHours: boolean;
   quietStart: string;
   quietEnd: string;
-  escalateNanny: boolean;
-  hapticOnly: boolean;
   lockOnTask: boolean;
   blockGames: boolean;
 }
@@ -45,8 +43,6 @@ export const DEFAULT_KID_SETTINGS: KidSettings = {
   quietHours: true,
   quietStart: '21:00',
   quietEnd: '07:00',
-  escalateNanny: true,
-  hapticOnly: false,
   lockOnTask: false,
   blockGames: false,
 };
@@ -204,8 +200,6 @@ class SupabaseImpl implements TimekeeperClient {
         quietHours:     data.quiet_hours     ?? DEFAULT_KID_SETTINGS.quietHours,
         quietStart:     data.quiet_start     ?? DEFAULT_KID_SETTINGS.quietStart,
         quietEnd:       data.quiet_end       ?? DEFAULT_KID_SETTINGS.quietEnd,
-        escalateNanny:  data.escalate_nanny  ?? DEFAULT_KID_SETTINGS.escalateNanny,
-        hapticOnly:     data.haptic_only     ?? DEFAULT_KID_SETTINGS.hapticOnly,
         lockOnTask:     data.lock_on_task    ?? DEFAULT_KID_SETTINGS.lockOnTask,
         blockGames:     data.block_games     ?? DEFAULT_KID_SETTINGS.blockGames,
       };
@@ -219,8 +213,6 @@ class SupabaseImpl implements TimekeeperClient {
       if (patch.quietHours    !== undefined) row.quiet_hours    = patch.quietHours;
       if (patch.quietStart    !== undefined) row.quiet_start    = patch.quietStart;
       if (patch.quietEnd      !== undefined) row.quiet_end      = patch.quietEnd;
-      if (patch.escalateNanny !== undefined) row.escalate_nanny = patch.escalateNanny;
-      if (patch.hapticOnly    !== undefined) row.haptic_only    = patch.hapticOnly;
       if (patch.lockOnTask    !== undefined) row.lock_on_task   = patch.lockOnTask;
       if (patch.blockGames    !== undefined) row.block_games    = patch.blockGames;
       const { error } = await this.sb.from('kid_settings').upsert(row, { onConflict: 'kid_id' });

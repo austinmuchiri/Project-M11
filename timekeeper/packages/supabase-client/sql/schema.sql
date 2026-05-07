@@ -135,6 +135,21 @@ create index if not exists block_commands_kid_ts_idx
 on block_commands (kid_id, created_at desc);
 
 -- =========================
+-- KID SETTINGS
+-- =========================
+
+create table if not exists kid_settings (
+  kid_id          text primary key references kids(id) on delete cascade,
+  miss_threshold  int not null default 3,
+  quiet_hours     boolean not null default true,
+  quiet_start     text not null default '21:00',
+  quiet_end       text not null default '07:00',
+  lock_on_task    boolean not null default false,
+  block_games     boolean not null default false,
+  updated_at      timestamptz default now()
+);
+
+-- =========================
 -- REALTIME
 -- =========================
 
@@ -158,6 +173,7 @@ alter table alerts enable row level security;
 alter table laptop_heartbeat enable row level security;
 alter table nudges enable row level security;
 alter table block_commands enable row level security;
+alter table kid_settings enable row level security;
 
 -- ownership helper
 create or replace function tk_owns_kid(kid text)
@@ -199,4 +215,7 @@ create policy "nudges: owner" on nudges
 for all using (tk_owns_kid(kid_id)) with check (tk_owns_kid(kid_id));
 
 create policy "block_commands: owner" on block_commands
+for all using (tk_owns_kid(kid_id)) with check (tk_owns_kid(kid_id));
+
+create policy "kid_settings: owner" on kid_settings
 for all using (tk_owns_kid(kid_id)) with check (tk_owns_kid(kid_id));
