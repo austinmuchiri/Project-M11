@@ -73,6 +73,7 @@ export interface TimekeeperClient {
   getSettings(kidId: string): Promise<KidSettings>;
   saveSettings(kidId: string, patch: Partial<KidSettings>): Promise<void>;
   createDevice(d: { kidId: string; kind: DeviceKind; label: string; id?: string; hardwareId?: string }): Promise<Device>;
+  findDeviceByDeviceId(deviceId: string): Promise<Device | null>;
   registerDevice(deviceId: string, hardwareId: string): Promise<void>;
   deleteDevice(deviceId: string): Promise<void>;
 
@@ -202,6 +203,18 @@ class SupabaseImpl implements TimekeeperClient {
       .from('devices').select('*').eq('kid_id', kidId);
     if (error) throw error;
     return (data ?? []).map(rowToDevice);
+  }
+
+  // Add to SupabaseImpl
+async findDeviceByDeviceId(deviceId: string): Promise<Device | null> {
+    const { data, error } = await this.sb
+      .from('devices')
+      .select('*')
+      .eq('id', deviceId)
+      .maybeSingle();
+
+    if (error) return null;
+    return data ? rowToDevice(data) : null;
   }
 
   async alerts(kidId: string): Promise<Alert[]> {
@@ -544,6 +557,11 @@ class MockImpl implements TimekeeperClient {
     return this.eventsStore.filter(e => e.kidId === kidId && e.ts >= sinceTs);
   }
   async devices(kidId: string) { return this.devicesStore.filter(d => d.kidId === kidId); }
+
+  async findDeviceByDeviceId(deviceId: string): Promise<Device | null> {
+    const device = this.devicesStore.find(d => d.id === deviceId);
+    return device ? { ...device } : null;
+  }
 
   async alerts(kidId: string) { return this.alertsStore.filter(a => a.kidId === kidId); }
 
