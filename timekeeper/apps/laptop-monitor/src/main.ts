@@ -1,11 +1,15 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, powerMonitor, dialog } from 'electron';
 import * as path from 'node:path';
+import * as dotenv from 'dotenv';
 import { startWatcher, stopWatcher, getCurrentSnapshot, type WatcherSnapshot } from './watcher';
 import { showLockscreen, hideLockscreen, isLockscreenVisible, getLockscreenWindow } from './lockscreen';
 import { showAppBlock, hideAppBlock, isAppBlockVisible } from './app-block';
-import { initClient, pushHeartbeat, registerDevice, isConnected, getQueueDepth, subscribeNudges, subscribeBlockCommands, sendBlockCommand } from './client';
+import { initClient, getPersistentDeviceId, pushHeartbeat, registerDevice, isConnected, getQueueDepth, subscribeNudges, subscribeBlockCommands, sendBlockCommand } from './client';
 import { loadPairing, clearPairing, getOrCreateDeviceIdentity } from './pairing';
 import type { BlockCommand } from '@timekeeper/schema';
+
+
+dotenv.config({ path: path.join(__dirname, '../.env') });
 
 let tray: Tray | null = null;
 let popup: BrowserWindow | null = null;
@@ -76,7 +80,11 @@ async function startApp() {
 
   // Renderer ↔ main bridge for the popup
   ipcMain.handle('tk:get-snapshot',    () => getCurrentSnapshot());
-  ipcMain.handle('tk:get-connection',  () => ({ connected: isConnected(), queued: getQueueDepth() }));
+  ipcMain.handle('tk:get-connection', async () => {
+    // Use a hardware ID or a local file to keep this persistent!
+    const deviceId = await getPersistentDeviceId(); 
+    return { deviceId };
+  });
   ipcMain.handle('tk:get-pairing',  () => {
     const pairing = loadPairing();
     if (!pairing) return null;
@@ -91,6 +99,7 @@ async function startApp() {
   });
   ipcMain.handle('tk:hide-lock', () => hideLockscreen());
 }
+
 
 function setupSubscriptions() {
   const pairing = loadPairing();

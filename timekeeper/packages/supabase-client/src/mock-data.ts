@@ -58,9 +58,7 @@ export const MOCK_DEVICES: Device[] = [
   { id: 'dev_watch_munene', kidId: MOCK_KID_ID, kind: 'watch',  label: "Munene's Watch",
     battery: 64, lastSeen: Date.now() - 12_000, fwVersion: '0.4.1', paired: true },
   { id: 'dev_laptop_munene', kidId: MOCK_KID_ID, kind: 'laptop', label: "Munene's Laptop",
-    lastSeen: Date.now() - 4_000, paired: true },
-  { id: 'dev_phone_nanny',   kidId: MOCK_KID_ID, kind: 'phone',  label: 'Nanny phone',
-    lastSeen: Date.now() - 60_000, paired: true },
+    lastSeen: Date.now() - 4_000, paired: true }
 ];
 
 export const MOCK_ALERTS: Alert[] = [

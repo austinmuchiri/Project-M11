@@ -54,6 +54,21 @@
   .cat.code { background: #D6E2EB; color: var(--info); }
   .cat.browser, .cat.system, .cat.other, .cat.social, .cat.writing, .cat.meeting {
     background: var(--bg-soft); color: var(--ink-dim); }
+  /* High-contrast styling for the ID display */
+  #display-device-id {
+    background: var(--bg-soft);
+    padding: 12px;
+    border-radius: 8px;
+    display: inline-block;
+    min-width: 80%;
+    border: 1px solid var(--border);
+  }
+
+  /* Ensure the footer buttons feel disabled when unpaired */
+  button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 </style>
 </head>
 <body>
@@ -64,6 +79,64 @@
 </header>
 
 <main id="root">
+  <div id="view-status">
+    <div class="card" id="focus-card">
+      <div class="label">Foreground app</div>
+      <div class="value" id="focus-app">—</div>
+      <div class="meta" id="focus-title">no data</div>
+      <div style="margin-top: 10px;"><span class="cat" id="focus-cat">other</span></div>
+    </div>
+
+    <div class="row" style="gap: 8px; margin-top: 12px;">
+      <div class="card" style="flex: 1;">
+        <div class="label">Idle</div>
+        <div class="value" id="idle-sec">—</div>
+        <div class="meta">seconds</div>
+      </div>
+      <div class="card" style="flex: 1;">
+        <div class="label">State</div>
+        <div class="value" id="state">—</div>
+        <div class="meta" id="state-meta">—</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 12px;">
+      <div class="row" style="justify-content: space-between;">
+        <div>
+          <div class="label">Paired with</div>
+          <div class="value" id="paired-name">—</div>
+        </div>
+        <span class="pill"><span class="dot"></span><span id="link-text">linking…</span></span>
+      </div>
+      <div class="meta" id="device-id">—</div>
+    </div>
+  </div>
+
+  <div id="view-pair" style="display: none; padding-top: 20px;">
+    <div class="card" style="text-align: center; padding: 32px 16px; border: 2px dashed var(--brand-soft);">
+      <div class="label" style="margin-bottom: 16px;">Device Pairing ID</div>
+      <div class="value" id="display-device-id" style="font-size: 24px; color: var(--brand); letter-spacing: 2px; font-family: var(--font-mono);">
+        LOADING... 
+      </div>
+      <p class="meta" style="margin-top: 20px; line-height: 1.5; font-size: 12px;">
+        Open the <b>Caregiver App</b> on your phone,<br/> 
+        go to <b>Settings > Pair Device</b>,<br/>
+        and enter the code above.
+      </p>
+    </div>
+  </div>
+</main>
+<!-- <main id="root">
+  <div id="view-status">
+     </div>
+
+  <div id="view-pair" style="display: none;">
+    <div class="card" style="text-align: center; padding: 24px;">
+      <div class="label" style="margin-bottom: 12px;">Your Device ID</div>
+      <div class="value" id="display-device-id" style="font-size: 24px; color: var(--brand); letter-spacing: 1px;">—</div>
+      <div class="meta" style="margin-top: 12px;">Enter this ID in the Caregiver App to pair.</div>
+    </div>
+  </div>
   <div class="card" id="focus-card">
     <div class="label">Foreground app</div>
     <div class="value" id="focus-app">—</div>
@@ -99,7 +172,7 @@
       <span id="net-text" style="font-size: 11px; color: var(--ink-dim); font-family: var(--font-mono);">checking…</span>
     </div>
   </div>
-</main>
+</main> -->
 
 <footer>
   <button id="btn-test-lock">Test lock</button>
@@ -110,25 +183,67 @@
 <script>
   const $ = (id) => document.getElementById(id);
 
+  window.tk.onRoute((route) => {
+    if (route === 'pair') {
+      // Hide the app status, show the pairing screen
+      $('focus-card').parentElement.style.display = 'none'; 
+      showPairingScreen();
+    }
+  });
+
+  async function showPairingScreen() {
+    const conn = await window.tk.getConnection();
+    const root = $('root');
+    
+    // Replace the UI with the Pairing ID
+    root.innerHTML = `
+      <div class="card" style="text-align: center; padding: 30px 10px;">
+        <div class="label" style="margin-bottom: 12px;">Pairing ID</div>
+        <div class="value" style="font-size: 22px; color: var(--brand); font-family: var(--font-mono);">
+          ${conn.deviceId}
+        </div>
+        <div class="meta" style="margin-top: 15px; line-height: 1.4;">
+          Enter this code in the Caregiver App<br/>under <b>Settings > Pair Device</b>
+        </div>
+      </div>
+    `;
+  }
+
   async function refresh() {
     const tk = window.tk;
     if (!tk) { $('status-badge').textContent = 'no bridge'; return; }
 
     const [snap, pairing, conn] = await Promise.all([tk.getSnapshot(), tk.getPairing(), tk.getConnection()]);
-
+    
     if (pairing) {
+      // Show Status, Hide Pairing
+      $('view-status').style.display = 'block';
+      $('view-pair').style.display = 'none';
+      
+      // Update labels
       $('status-badge').textContent = 'paired';
-      $('status-badge').style.background = '#D7E4DB';
+      $('status-badge').style.background = 'var(--brand-soft)';
       $('paired-name').textContent = pairing.kidName;
-      $('device-id').textContent = 'ID: ' + pairing.deviceId;
-      $('hardware-id').textContent = 'HW: ' + (pairing.hardwareId ?? '—');
-
-      $('link-text').textContent = 'live';
+      $('device-id').textContent = pairing.deviceId;
+      
+      // Enable/Disable buttons
+      $('btn-unpair').disabled = false;
+      $('btn-test-lock').disabled = false;
     } else {
+      // Hide Status, Show Pairing
+      $('view-status').style.display = 'none';
+      $('view-pair').style.display = 'block';
+      
       $('status-badge').textContent = 'unpaired';
-      $('status-badge').style.background = '#F4E2C9';
-      $('paired-name').textContent = '—';
-      $('link-text').textContent = 'offline';
+      $('status-badge').style.background = '#F4E2C9'; // Warning orange
+      
+      // Fetch and display the ID from the hardware
+      const conn = await tk.getConnection();
+      $('display-device-id').textContent = conn.deviceId;
+      
+      // Disable interaction buttons since we aren't linked
+      $('btn-unpair').disabled = true;
+      $('btn-test-lock').disabled = true;
     }
 
     if (conn) {
@@ -157,6 +272,13 @@
     } else {
       $('focus-app').textContent = 'starting…';
       $('focus-title').textContent = '';
+    }
+
+    // Update Foreground App stats if paired
+    if (snap && pairing) {
+      $('focus-app').textContent = snap.focus?.app || 'idle';
+      $('idle-sec').textContent = snap.idleSec;
+      // ... rest of your snap updates ...
     }
   }
 
