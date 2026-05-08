@@ -1,11 +1,15 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, powerMonitor, dialog } from 'electron';
 import * as path from 'node:path';
+import * as dotenv from 'dotenv';
 import { startWatcher, stopWatcher, getCurrentSnapshot, type WatcherSnapshot } from './watcher';
 import { showLockscreen, hideLockscreen, isLockscreenVisible, getLockscreenWindow } from './lockscreen';
 import { showAppBlock, hideAppBlock, isAppBlockVisible } from './app-block';
-import { initClient, pushHeartbeat, registerDevice, isConnected, getQueueDepth, subscribeNudges, subscribeBlockCommands, sendBlockCommand } from './client';
-import { loadPairing, clearPairing, getOrCreateDeviceIdentity } from './pairing';
+import { initClient, getPersistentDeviceId, pushHeartbeat, registerDevice, isConnected, getQueueDepth, subscribeNudges, subscribeBlockCommands, sendBlockCommand, getActiveClient } from './client';
+import { loadPairing, clearPairing, getOrCreateDeviceIdentity, savePairing, Pairing } from './pairing';
 import type { BlockCommand } from '@timekeeper/schema';
+
+
+dotenv.config({ path: path.join(__dirname, '../.env') });
 
 let tray: Tray | null = null;
 let popup: BrowserWindow | null = null;
@@ -42,13 +46,29 @@ app.whenReady().then(async () => {
 async function startApp() {
   buildTray();
 
-  // Stamp hardware ID into the device row so the caregiver can verify identity.
-  // Runs silently — a failed registration never blocks monitoring.
   const pairing = loadPairing();
-  if (pairing) {
+
+  if (!pairing) {
+    console.log('[main] Device unpaired. Starting discovery poll...');
+    const pollTimer = setInterval(async () => {
+      if (getActiveClient()) {
+        await pollForPairing();
+        // Check if pollForPairing just succeeded in creating the file
+        if (loadPairing()) {
+          console.log('[main] Handshake success. Polling stopped.');
+          clearInterval(pollTimer);
+        }
+      }
+    }, 5000);
+  } else {
+    // Standard startup for a device that is already linked
     const identity = getOrCreateDeviceIdentity();
     void registerDevice(identity.deviceId, identity.hardwareId);
+    setupSubscriptions();
   }
+  // Stamp hardware ID into the device row so the caregiver can verify identity.
+  // Runs silently — a failed registration never blocks monitoring.
+  
 
   await startWatcher((snap) => {
     void onSnapshot(snap);
@@ -56,8 +76,7 @@ async function startApp() {
     checkAppBlock(snap);
   });
 
-  setupSubscriptions();
-
+  
   // Quit handlers — tray-only app, never auto-quits when no windows
   app.on('window-all-closed', () => { /* keep tray alive */ });
 
@@ -76,7 +95,10 @@ async function startApp() {
 
   // Renderer ↔ main bridge for the popup
   ipcMain.handle('tk:get-snapshot',    () => getCurrentSnapshot());
-  ipcMain.handle('tk:get-connection',  () => ({ connected: isConnected(), queued: getQueueDepth() }));
+  ipcMain.handle('tk:get-connection', async () => {
+    const identity = getOrCreateDeviceIdentity(); 
+    return { deviceId: identity.deviceId };
+  });
   ipcMain.handle('tk:get-pairing',  () => {
     const pairing = loadPairing();
     if (!pairing) return null;
@@ -91,6 +113,7 @@ async function startApp() {
   });
   ipcMain.handle('tk:hide-lock', () => hideLockscreen());
 }
+
 
 function setupSubscriptions() {
   const pairing = loadPairing();
@@ -237,6 +260,41 @@ function checkAppBlock(snap: WatcherSnapshot) {
     showAppBlock(blockedAppName, activeBlock?.payload?.taskLabel ?? 'your routine');
   } else if (!matched && isAppBlockVisible()) {
     hideAppBlock();
+  }
+}
+
+async function pollForPairing() {
+  const identity = getOrCreateDeviceIdentity(); // This has { deviceId, hardwareId }
+  const client = getActiveClient();
+
+  if (!client || loadPairing()) return;
+
+  try {
+    // 1. Search by the specific ID shown on the tray popup
+    console.log(`[Handshake] Checking Supabase for Device ID: ${identity.deviceId}`);
+    const device = await client.findDeviceByDeviceId(identity.deviceId);
+
+    if (device && device.kidId) {
+      // 2. STAMP the hardware ID now so it's no longer null
+      // This "locks" this database row to this specific physical laptop
+      console.log(`[Handshake] Found device record! Linked to Kid: ${device.kidId}`);
+      await client.registerDevice(identity.deviceId, identity.hardwareId);
+
+      const newPairing: Pairing = {
+        kidId: device.kidId,
+        kidName: 'Linked',
+        deviceId: identity.deviceId,
+        hardwareId: identity.hardwareId,
+        pairedAt: Date.now(),
+      };
+
+      savePairing(newPairing);
+      setupSubscriptions();
+      refreshTray(getCurrentSnapshot());
+    }
+  } catch (err) {
+    // Fail silently, retry in 5s
+    console.error('[Handshake] Network error during poll:', err);
   }
 }
 

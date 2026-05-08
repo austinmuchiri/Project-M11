@@ -3,7 +3,7 @@ import {
   APP, AppIcon, Card, IconBadge, MiniWatchFace, Pill, RingGauge,
   StatusDot, TASK_ICON, type IconName,
 } from '@timekeeper/ui';
-import { useStore, resolveTodayTasks, activeTask, lockLaptop, unlockLaptop, blockApp, computeStreak, computeWeeklyStars } from '../store';
+import { useStore, resolveTodayTasks, activeTask, lockLaptop, unlockLaptop, blockApp, computeStreak, computeWeeklyStars, updateKid } from '../store';
 
 export function HomeScreen({ onNudge, onSchedule }: {
   onNudge: () => void;
@@ -17,6 +17,32 @@ export function HomeScreen({ onNudge, onSchedule }: {
   const kid        = useStore(s => s.kid);
   const streak     = useStore(computeStreak);
   const weekStars  = useStore(computeWeeklyStars);
+
+  const [editing, setEditing]       = useState(false);
+  const [draftName, setDraftName]   = useState(kid.name);
+  const [draftDob, setDraftDob]     = useState(kid.dateOfBirth ?? '');
+  const [saving, setSaving]         = useState(false);
+
+  const avatarLetter = editing
+    ? (draftName.trim()[0]?.toUpperCase() ?? kid.initials)
+    : kid.initials;
+
+  const onEditOpen = () => {
+    setDraftName(kid.name);
+    setDraftDob(kid.dateOfBirth ?? '');
+    setEditing(true);
+  };
+
+  const onSave = async () => {
+    if (!draftName.trim()) return;
+    setSaving(true);
+    try {
+      await updateKid({ name: draftName.trim(), dateOfBirth: draftDob || undefined });
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const watch = devices.find(d => d.kind === 'watch');
   const elapsed = active?.startedAt ? Math.floor((Date.now() - active.startedAt) / 1000) : 132;
@@ -44,20 +70,84 @@ export function HomeScreen({ onNudge, onSchedule }: {
             background: kid.avatarColor,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
-            <span style={{ fontSize: 18, fontWeight: 800, color: '#fff' }}>{kid.initials}</span>
+            <span style={{ fontSize: 18, fontWeight: 800, color: '#fff' }}>{avatarLetter}</span>
           </div>
+
           <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: APP.fontDisp, fontSize: 18, fontWeight: 800, color: APP.ink }}>
-              {kid.name}
+            {editing ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <input
+                  value={draftName}
+                  onChange={e => setDraftName(e.target.value)}
+                  placeholder="Name"
+                  autoFocus
+                  style={{
+                    fontFamily: APP.fontDisp, fontSize: 16, fontWeight: 800, color: APP.ink,
+                    border: `1.5px solid ${APP.brand}`, borderRadius: 6, padding: '3px 8px',
+                    outline: 'none', width: '100%', boxSizing: 'border-box',
+                  }}
+                />
+                <input
+                  type="date"
+                  value={draftDob}
+                  onChange={e => setDraftDob(e.target.value)}
+                  style={{
+                    fontSize: 12, color: APP.inkDim, fontFamily: APP.fontMono,
+                    border: `1px solid ${APP.border}`, borderRadius: 6, padding: '3px 8px',
+                    outline: 'none', width: '100%', boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+            ) : (
+              <>
+                <div style={{ fontFamily: APP.fontDisp, fontSize: 18, fontWeight: 800, color: APP.ink }}>
+                  {kid.name}
+                </div>
+                <div style={{ fontSize: 12, color: APP.inkDim, marginTop: 1 }}>{kid.age} yrs old</div>
+              </>
+            )}
+          </div>
+
+          {editing ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flexShrink: 0 }}>
+              <button
+                onClick={onSave}
+                disabled={saving || !draftName.trim()}
+                style={{
+                  padding: '4px 12px', borderRadius: 6, border: 'none',
+                  background: APP.brand, color: '#fff',
+                  fontFamily: APP.font, fontWeight: 800, fontSize: 12,
+                  cursor: saving ? 'wait' : 'pointer', opacity: draftName.trim() ? 1 : 0.5,
+                }}
+              >
+                {saving ? '…' : 'Save'}
+              </button>
+              <button
+                onClick={() => setEditing(false)}
+                style={{
+                  padding: '4px 12px', borderRadius: 6,
+                  border: `1px solid ${APP.border}`, background: 'transparent',
+                  color: APP.inkDim, fontFamily: APP.font, fontWeight: 700, fontSize: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
             </div>
-            <div style={{ fontSize: 12, color: APP.inkDim, marginTop: 1 }}>{kid.age} yrs old</div>
-          </div>
-          <div style={{
-            fontSize: 10, fontWeight: 800, letterSpacing: 1.1, textTransform: 'uppercase',
-            color: APP.brand, background: APP.brandSoft, borderRadius: 6, padding: '3px 8px',
-          }}>
-            Caregiver view
-          </div>
+          ) : (
+            <button
+              onClick={onEditOpen}
+              aria-label="Edit kid profile"
+              style={{
+                padding: '4px 10px', borderRadius: 6,
+                border: `1px solid ${APP.border}`, background: 'transparent',
+                color: APP.inkDim, fontFamily: APP.font, fontWeight: 700, fontSize: 12,
+                cursor: 'pointer', flexShrink: 0,
+              }}
+            >
+              Edit
+            </button>
+          )}
         </div>
       </Card>
 

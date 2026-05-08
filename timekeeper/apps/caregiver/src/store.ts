@@ -336,6 +336,18 @@ export async function toggleRoutineActive(routineId: string) {
   await updateRoutine(routineId, { active: !r.active });
 }
 
+export async function updateKid(patch: { name?: string; dateOfBirth?: string }) {
+  const kidId = state.kid.id;
+  const initials = patch.name?.trim()[0]?.toUpperCase() ?? state.kid.initials;
+  // Optimistic update
+  const optimistic: Partial<typeof state.kid> = {};
+  if (patch.name !== undefined) { optimistic.name = patch.name; optimistic.initials = initials; }
+  set({ kid: { ...state.kid, ...optimistic } });
+  await getClient().updateKid(kidId, { name: patch.name, initials: patch.name ? initials : undefined, dateOfBirth: patch.dateOfBirth });
+  const fresh = await getClient().resolveKid();
+  if (fresh) set({ kid: fresh });
+}
+
 export async function saveSettings(patch: Partial<KidSettings>) {
   set({ settings: { ...state.settings, ...patch } });
   await getClient().saveSettings(state.kid.id, patch);

@@ -1,5 +1,7 @@
 import { createTimekeeperClient, type TimekeeperClient } from '@timekeeper/supabase-client';
 import type { LaptopHeartbeat, Nudge, BlockCommand } from '@timekeeper/schema';
+import { getOrCreateDeviceIdentity, loadPairing } from './pairing';
+import { machineIdSync } from 'node-machine-id';
 
 let client: TimekeeperClient | null = null;
 
@@ -15,9 +17,32 @@ let connected = true;
 export function isConnected(): boolean { return connected; }
 export function getQueueDepth(): number { return offlineQueue.length; }
 
-export function initClient() {
+export function getActiveClient(): TimekeeperClient | null {
+  return client;
+}
+
+export function getPersistentDeviceId(): string {
+  // Use the stable identity from pairing.ts instead of generating a new one here
+  return getOrCreateDeviceIdentity().deviceId;
+}
+
+
+
+export async function initClient() {
   client = createTimekeeperClient();
-  console.log(`[client] mode: ${client.isMock ? 'MOCK' : 'SUPABASE'}`);
+
+  if (!client.isMock) {
+    // Instead of resolveKid (which needs a user), 
+    // just get the hardware ID and check if it's already in the 'devices' table.
+    const deviceId = getPersistentDeviceId(); 
+    console.log(`[client] Device initialized: ${deviceId}`);
+
+    // Check if we are already linked to a kid in your local config
+    const pairing = loadPairing(); 
+    if (pairing) {
+       console.log(`[client] Resuming session for: ${pairing.kidName}`);
+    }
+  }
 }
 
 async function flushQueue(): Promise<void> {
