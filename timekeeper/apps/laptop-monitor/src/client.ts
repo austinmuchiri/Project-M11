@@ -78,6 +78,12 @@ export async function pushHeartbeat(h: LaptopHeartbeat): Promise<void> {
   }
 }
 
+export async function findDeviceByDeviceId(deviceId: string) {
+  if (!client) throw new Error('client not initialized');
+
+  return client.findDeviceByDeviceId(deviceId);
+}
+
 export async function registerDevice(deviceId: string, hardwareId: string): Promise<void> {
   if (!client) return;
   try {

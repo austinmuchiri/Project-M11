@@ -4,9 +4,10 @@ import * as dotenv from 'dotenv';
 import { startWatcher, stopWatcher, getCurrentSnapshot, type WatcherSnapshot } from './watcher';
 import { showLockscreen, hideLockscreen, isLockscreenVisible, getLockscreenWindow } from './lockscreen';
 import { showAppBlock, hideAppBlock, isAppBlockVisible } from './app-block';
-import { initClient, getPersistentDeviceId, pushHeartbeat, registerDevice, isConnected, getQueueDepth, subscribeNudges, subscribeBlockCommands, sendBlockCommand, getActiveClient } from './client';
+import { initClient, findDeviceByDeviceId, pushHeartbeat, registerDevice, isConnected, getQueueDepth, subscribeNudges, subscribeBlockCommands, sendBlockCommand, getActiveClient } from './client';
 import { loadPairing, clearPairing, getOrCreateDeviceIdentity, savePairing, Pairing } from './pairing';
 import type { BlockCommand } from '@timekeeper/schema';
+
 
 
 dotenv.config({ path: path.join(__dirname, '../.env') });
@@ -51,21 +52,31 @@ async function startApp() {
   const pairing = loadPairing();
 
   if (!pairing) {
-    console.log('[main] Device unpaired. Starting discovery poll...');
-    const pollTimer = setInterval(async () => {
-      if (getActiveClient()) {
-        await pollForPairing();
-        // Check if pollForPairing just succeeded in creating the file
-        if (loadPairing()) {
-          console.log('[main] Handshake success. Polling stopped.');
+  console.log('[main] Device unpaired. Starting discovery poll...');
+
+  pollTimer = setInterval(async () => {
+    if (getActiveClient()) {
+      await pollForPairing();
+
+      if (loadPairing()) {
+        console.log('[main] Handshake success. Polling stopped.');
+        
+        if (pollTimer) {
+          
           clearInterval(pollTimer);
+          pollTimer = null;
         }
       }
-    }, 5000);
+    }
+  }, 5000);
   } else {
-    // Standard startup for a device that is already linked
+
     const identity = getOrCreateDeviceIdentity();
-    void registerDevice(identity.deviceId, identity.hardwareId);
+    
+    void registerDevice(
+      identity.deviceId,
+      identity.hardwareId
+    );
     setupSubscriptions();
   }
   // Stamp hardware ID into the device row so the caregiver can verify identity.
@@ -118,18 +129,22 @@ async function startApp() {
 
 
 function setupSubscriptions() {
-  const pairing = loadPairing();
-  if (!pairing) return;
+  
+  const pairing = loadPairing();
+  
+  if (!pairing) return;
+  
+  unsubNudges = subscribeNudges(pairing.kidId, (n) => {
+    console.log('[main] nudge received:', n.message);
+  });
+  
+  unsubBlocks = subscribeBlockCommands(pairing.kidId, (cmd) => {
+    console.log('[main] block command:', cmd.action, cmd.payload);
+    handleBlockCommand(cmd);
+    refreshTray(getCurrentSnapshot());
+  });
 
-  unsubNudges = subscribeNudges(pairing.kidId, (n) => {
-    console.log('[main] nudge received:', n.message);
-  });
 
-  unsubBlocks = subscribeBlockCommands(pairing.kidId, (cmd) => {
-    console.log('[main] block command:', cmd.action, cmd.payload);
-    handleBlockCommand(cmd);
-    refreshTray(getCurrentSnapshot());
-  });
 }
 
 function teardownSubscriptions() {
@@ -267,37 +282,56 @@ function checkAppBlock(snap: WatcherSnapshot) {
 
 
 async function pollForPairing() {
-  const identity = getOrCreateDeviceIdentity(); // This has { deviceId, hardwareId }
-  const client = getActiveClient();
+  const identity = getOrCreateDeviceIdentity();
 
-  if (!client || loadPairing()) return;
+  if (loadPairing()) return;
 
   try {
-    // 1. Search by the specific ID shown on the tray popup
-    console.log(`[Handshake] Checking Supabase for Device ID: ${identity.deviceId}`);
-    const device = await client.findDeviceByDeviceId(identity.deviceId);
+    console.log(
+      `[Handshake] polling for device ID: ${identity.deviceId}`
+    );
 
-    if (device && device.kidId) {
-      // 2. STAMP the hardware ID now so it's no longer null
-      // This "locks" this database row to this specific physical laptop
-      console.log(`[Handshake] Found device record! Linked to Kid: ${device.kidId}`);
-      await client.registerDevice(identity.deviceId, identity.hardwareId);
+    const device = await findDeviceByDeviceId(
+      identity.deviceId
+    );
 
-      const newPairing: Pairing = {
-        kidId: device.kidId,
-        kidName: 'Linked',
-        deviceId: identity.deviceId,
-        hardwareId: identity.hardwareId,
-        pairedAt: Date.now(),
-      };
-
-      savePairing(newPairing);
-      setupSubscriptions();
-      refreshTray(getCurrentSnapshot());
+    if (!device) {
+      console.log('[Handshake] device not found yet');
+      return;
     }
+
+    if (!device.kid_id) {
+      console.log('[Handshake] device missing kid_id');
+      return;
+    }
+
+    console.log(
+      `[Handshake] found device row for kid ${device.kid_id}`
+    );
+
+    await registerDevice(
+      identity.deviceId,
+      identity.hardwareId
+    );
+
+    const pairing: Pairing = {
+      kidId: device.kid_id,
+      kidName: 'Linked',
+      deviceId: identity.deviceId,
+      hardwareId: identity.hardwareId,
+      pairedAt: Date.now(),
+    };
+
+    savePairing(pairing);
+
+    console.log('[Handshake] pairing saved');
+
+    setupSubscriptions();
+
+    refreshTray(getCurrentSnapshot());
+
   } catch (err) {
-    // Fail silently, retry in 5s
-    console.error('[Handshake] Network error during poll:', err);
+    console.error('[Handshake] polling failed:', err);
   }
 }
 
@@ -313,7 +347,7 @@ async function requestUnlock() {
   // request notification. The overlay stays up until the caregiver explicitly
   // sends unlock_screen.
   await sendBlockCommand({
-    kidId: pairing.kidId,
+    kid_id: pairing.kidId,
     action: 'request_unlock',
     createdAt: Date.now(),
   }).catch((err) => {
@@ -323,6 +357,7 @@ async function requestUnlock() {
     notifyLockscreen('locked');
   });
 }
+
 
 function notifyLockscreen(state: 'locked' | 'pending') {
   const lockWin = getLockscreenWindow();
@@ -356,7 +391,7 @@ function pair() {
 }
 
 function unpair() {
-  // Tear down subscriptions before clearing pairing so the old kidId
+  // Tear down subscriptions before clearing pairing so the old kid_id
   // channels don't receive stale commands after re-pairing.
   teardownSubscriptions();
   clearPairing();
@@ -390,7 +425,7 @@ async function onSnapshot(snap: WatcherSnapshot) {
   if (!pairing) return;
   await pushHeartbeat({
     deviceId: pairing.deviceId,
-    kidId: pairing.kidId,
+    kid_id: pairing.kidId,
     ts: Date.now(),
     focus: snap.focus,
     idleSec: snap.idleSec,
@@ -409,7 +444,7 @@ function onSystemEvent(ev: { kind: 'lock' | 'unlock' | 'sleep' | 'wake' }) {
   const locked = ev.kind === 'lock' || ev.kind === 'sleep';
   void pushHeartbeat({
     deviceId: pairing.deviceId,
-    kidId: pairing.kidId,
+    kid_id: pairing.kidId,
     ts: Date.now(),
     focus: snap?.focus ?? null,
     idleSec: snap?.idleSec ?? 0,

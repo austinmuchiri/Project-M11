@@ -24,7 +24,7 @@ export function NudgeScreen({ onDone }: { onDone: () => void }) {
     const q = QUICK.find(x => x.id === selected);
     const message = custom.trim() || q?.label || 'Nudge';
     const tone: NudgeTone = custom.trim() ? 'custom' : (q?.tone ?? 'reminder');
-    await sendNudge({ kidId: kid.id, message, tone, sentAt: Date.now(), acknowledged: false });
+    await sendNudge({ kid_id: kid.id, message, tone, sentAt: Date.now(), acknowledged: false });
     setSent(true);
     setTimeout(onDone, 900);
   };

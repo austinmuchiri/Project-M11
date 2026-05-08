@@ -206,16 +206,34 @@ class SupabaseImpl implements TimekeeperClient {
   }
 
   // Add to SupabaseImpl
-async findDeviceByDeviceId(deviceId: string): Promise<Device | null> {
-    const { data, error } = await this.sb
-      .from('devices')
-      .select('*')
-      .eq('id', deviceId)
-      .maybeSingle();
+async findDeviceByDeviceId(deviceId: string) {
+  console.log(
+    '[supabase-client] querying device:',
+    deviceId
+  );
 
-    if (error) return null;
-    return data ? rowToDevice(data) : null;
+  const { data, error } = await this.sb
+    .from('devices')
+    .select('*')
+    .eq('id', deviceId)
+    .maybeSingle();
+
+  console.log(
+    '[supabase-client] query result:',
+    data
+  );
+
+  if (error) {
+    console.error(
+      '[supabase-client] query error:',
+      error
+    );
+
+    throw error;
   }
+
+  return data;
+}
 
   async alerts(kid_id: string): Promise<Alert[]> {
     const { data, error } = await this.sb
@@ -261,17 +279,44 @@ async findDeviceByDeviceId(deviceId: string): Promise<Device | null> {
     } catch { /* degrade gracefully if table missing */ }
   }
 
-  async createDevice(d: { kid_id: string; kind: DeviceKind; label: string; id?: string; hardwareId?: string }): Promise<Device> {
-    const id  = d.id ?? `dev_${d.kind}_${Date.now()}`;
-    const now = Date.now();
-    const row: Record<string, unknown> = {
-      id, kid_id: d.kid_id, kind: d.kind, label: d.label,
-      last_seen: now, paired: true,
+  async createDevice(payload: {
+    kid_id: string;
+    kind: string;
+    label: string;
+    id?: string;
+    pairingCode?: string;
+    hardware_id?: string | null;
+  }) {
+    const insertPayload = {
+      id: payload.id,
+      kid_id: payload.kid_id,
+      kind: payload.kind,
+      label: payload.label,
+
+      pairing_code: payload.pairingCode ?? null,
+
+      /*
+        MUST start null.
+        Electron tray later stamps this
+        during successful handshake.
+      */
+      hardware_id: payload.hardware_id ?? null,
     };
-    if (d.hardwareId) row.hardware_id = d.hardwareId;
-    const { error } = await this.sb.from('devices').upsert(row, { onConflict: 'id' });
-    if (error) throw error;
-    return { id, kid_id: d.kid_id, kind: d.kind, label: d.label, lastSeen: now, paired: true };
+
+    console.log('[supabase-client] insert device:', insertPayload);
+
+    const { data, error } = await this.sb
+      .from('devices')
+      .insert(insertPayload)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[supabase-client] createDevice failed:', error);
+      throw error;
+    }
+
+    return data;
   }
 
   async registerDevice(deviceId: string, hardwareId: string): Promise<void> {
@@ -279,6 +324,7 @@ async findDeviceByDeviceId(deviceId: string): Promise<Device | null> {
       .from('devices')
       .update({ hardware_id: hardwareId, last_seen: Date.now() })
       .eq('id', deviceId);
+      
     if (error) console.warn('[supabase] registerDevice failed:', error.message);
   }
 

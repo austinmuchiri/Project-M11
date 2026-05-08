@@ -359,24 +359,54 @@ export async function saveSettings(patch: Partial<KidSettings>) {
 
 // store.ts
 
-export async function pairDevice(kind: DeviceKind, label: string, code?: string) {
-  // const state = get();
+export async function pairDevice(
+  kind: DeviceKind,
+  label: string,
+  code?: string
+) {
   const client = getClient();
-  const payload: { kid_id: string; kind: DeviceKind; label: string; id?: string; pairingCode?: string } = {
+
+  const payload: {
+    kid_id: string;
+    kind: DeviceKind;
+    label: string;
+    id?: string;
+    pairingCode?: string;
+    hardware_id?: string | null;
+  } = {
     kid_id: state.kid.id,
     kind,
     label,
+    hardware_id: null,
   };
-  
 
+  /*
+    IMPORTANT:
+    For laptops:
+    - the pairing code IS the device ID
+    - Electron tray app polls using this exact ID
+  */
   if (kind === 'laptop' && code) {
-    payload.id = code; // device ID copied from the tray popup — used as the DB primary key
-  } else if (kind === 'watch' && code) {
-    payload.pairingCode = code; // 4-digit PIN shown on watch display
+    payload.id = code;
   }
 
+  /*
+    Watches still use a temporary pairing code
+  */
+  if (kind === 'watch' && code) {
+    payload.pairingCode = code;
+  }
+
+  console.log('[caregiver] creating device:', payload);
+
   const device = await client.createDevice(payload);
-  set({ devices: [...state.devices, device] });
+
+  console.log('[caregiver] device created:', device);
+  console.log('[caregiver] pairing code:', code);
+
+  set({
+    devices: [...state.devices, device],
+  });
 }
 
 export async function removeDevice(deviceId: string) {
