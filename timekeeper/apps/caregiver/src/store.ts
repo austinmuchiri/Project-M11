@@ -360,6 +360,7 @@ export async function saveSettings(patch: Partial<KidSettings>) {
 // store.ts
 
 export async function pairDevice(kind: DeviceKind, label: string, code?: string) {
+  // const state = get();
   const client = getClient();
   const payload: { kid_id: string; kind: DeviceKind; label: string; id?: string; pairingCode?: string } = {
     kid_id: state.kid.id,
