@@ -126,7 +126,7 @@ export function ScheduleScreen({ selectedId, onSelect }: {
     if (editingTaskId === undefined) {
       const newTask: Task = {
         id: `task-${Date.now()}`,
-        kidId: selected.kidId,
+        kid_id: selected.kid_id,
         label: draft.label.trim(),
         icon: draft.icon,
         scheduledTime: draft.scheduledTime,
@@ -149,38 +149,64 @@ export function ScheduleScreen({ selectedId, onSelect }: {
   };
 
   const handleDeleteTask = async (taskId: string) => {
-    if (!selected) return;
-    await deleteTaskFromRoutine(selected.id, taskId);
-    showToast("Task deleted");
-    closeModal();
-  };
+      if (!selected) return;
+      await deleteTaskFromRoutine(selected.id, taskId);
+      showToast("Task deleted");
+      closeModal();
+    };
 
+    
+    const onSync = () => {
+      if (!watch) {
+        showToast("No watch connected. Please check Bluetooth.", "error");
+        return;
+      }
+      setSyncToast(true);
+      setTimeout(() => setSyncToast(false), 2500);
+      showToast("Routine synced to watch!");
+    };
+    const openCreateRoutine = (preset?: { name: string; startTime: string }) => {
+      setRoutineDraft(preset ?? DEFAULT_ROUTINE_DRAFT);
+      setIsRoutineModalOpen(true);
+    };
   
-  const onSync = () => {
-    if (!watch) {
-      showToast("No watch connected. Please check Bluetooth.", "error");
-      return;
-    }
-    setSyncToast(true);
-    setTimeout(() => setSyncToast(false), 2500);
-    showToast("Routine synced to watch!");
-  };
-  const openCreateRoutine = (preset?: { name: string; startTime: string }) => {
-    setRoutineDraft(preset ?? DEFAULT_ROUTINE_DRAFT);
-    setIsRoutineModalOpen(true);
-  };
+  const kid = useStore(s => s.kid);
 
   const handleCreateRoutine = async () => {
+    const currentKidId = kid.id;
+
     if (!routineDraft.name.trim()) return;
+
+    if (!currentKidId) {
+      showToast("No kid profile loaded", "error");
+      return;
+    }
+
     const routineId = `routine-${Date.now()}`;
-    await createRoutine({
-      id: routineId,
-      name: routineDraft.name.trim(),
-      startTime: routineDraft.startTime,
-    });
-    showToast("Routine created!");
-    setIsRoutineModalOpen(false);
-    onSelect(routineId);
+
+    try {
+      await createRoutine({
+        id: routineId,
+        kid_id: currentKidId,
+        name: routineDraft.name.trim(),
+        startTime: routineDraft.startTime,
+        active: true,
+        tasks: [],
+      });
+
+      showToast("Routine created!");
+      setIsRoutineModalOpen(false);
+      onSelect(routineId);
+
+    } catch (err: any) {
+      console.error("Routine creation failed:", err);
+
+      if (err.code === '42501') {
+        showToast("Permission denied by database", "error");
+      } else {
+        showToast("Failed to create routine", "error");
+      }
+    }
   };
 
   const handleDeleteRoutine = async (routineId: string) => {

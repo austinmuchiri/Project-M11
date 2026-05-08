@@ -295,22 +295,26 @@ export async function recordEvent(ev: TaskEvent) {
 
 export async function sendNudge(n: Nudge) { await getClient().sendNudge(n); }
 
-export async function createRoutine(params: { id: string; name: string; startTime: string }) {
-  const routine: Routine = {
-    id: params.id,
-    kidId: state.kid.id,
-    name: params.name,
-    tasks: [],
-    startTime: params.startTime,
-    active: true,
-  };
+// store.ts
 
-  set({ routines: [...state.routines, routine] });
+// Update the signature to accept the full Routine type
+export async function createRoutine(routine: Routine) {
+  // optimistic update
+  set({
+    routines: [...state.routines, routine],
+  });
 
   try {
     await getClient().createRoutine(routine);
-  } catch {
-    queueMutation({ type: "createRoutine", payload: routine });
+  } catch (error) {
+    console.error("Sync failed, queuing for later:", error);
+
+    queueMutation({
+      type: "createRoutine",
+      payload: routine,
+    });
+
+    throw error;
   }
 }
 
@@ -337,13 +341,13 @@ export async function toggleRoutineActive(routineId: string) {
 }
 
 export async function updateKid(patch: { name?: string; dateOfBirth?: string }) {
-  const kidId = state.kid.id;
+  const kid_id = state.kid.id;
   const initials = patch.name?.trim()[0]?.toUpperCase() ?? state.kid.initials;
   // Optimistic update
   const optimistic: Partial<typeof state.kid> = {};
   if (patch.name !== undefined) { optimistic.name = patch.name; optimistic.initials = initials; }
   set({ kid: { ...state.kid, ...optimistic } });
-  await getClient().updateKid(kidId, { name: patch.name, initials: patch.name ? initials : undefined, dateOfBirth: patch.dateOfBirth });
+  await getClient().updateKid(kid_id, { name: patch.name, initials: patch.name ? initials : undefined, dateOfBirth: patch.dateOfBirth });
   const fresh = await getClient().resolveKid();
   if (fresh) set({ kid: fresh });
 }
@@ -357,11 +361,12 @@ export async function saveSettings(patch: Partial<KidSettings>) {
 
 export async function pairDevice(kind: DeviceKind, label: string, code?: string) {
   const client = getClient();
-  const payload: { kidId: string; kind: DeviceKind; label: string; id?: string; pairingCode?: string } = {
-    kidId: state.kid.id,
+  const payload: { kid_id: string; kind: DeviceKind; label: string; id?: string; pairingCode?: string } = {
+    kid_id: state.kid.id,
     kind,
     label,
   };
+  
 
   if (kind === 'laptop' && code) {
     payload.id = code; // device ID copied from the tray popup — used as the DB primary key
@@ -453,11 +458,11 @@ export async function deleteTaskFromRoutine(routineId: string, taskId: string) {
   } catch {
     queueMutation({ type: "updateTasks", payload: { routineId, tasks } });
   }
-}
+} 
 
-export async function lockLaptop(kidId: string, task?: { taskId: string; label: string; expectedMinutes: number }) {
+export async function lockLaptop(kid_id: string, task?: { taskId: string; label: string; expectedMinutes: number }) {
   const cmd: BlockCommand = {
-    kidId, action: 'lock_screen',
+    kid_id, action: 'lock_screen',
     payload: task ? { taskId: task.taskId, taskLabel: task.label, expectedSec: task.expectedMinutes * 60 } : undefined,
     createdAt: Date.now(),
     expiresAt: Date.now() + 2 * 60 * 60 * 1000, // auto-release after 2 h
@@ -466,15 +471,15 @@ export async function lockLaptop(kidId: string, task?: { taskId: string; label: 
   await getClient().sendBlockCommand(cmd);
 }
 
-export async function unlockLaptop(kidId: string) {
-  const cmd: BlockCommand = { kidId, action: 'unlock_screen', createdAt: Date.now() };
+export async function unlockLaptop(kid_id: string) {
+  const cmd: BlockCommand = { kid_id, action: 'unlock_screen', createdAt: Date.now() };
   set({ activeBlock: null });
   await getClient().sendBlockCommand(cmd);
 }
 
-export async function blockApp(kidId: string, appName: string, task?: { taskId: string; label: string }) {
+export async function blockApp(kid_id: string, appName: string, task?: { taskId: string; label: string }) {
   const cmd: BlockCommand = {
-    kidId, action: 'block_app',
+    kid_id, action: 'block_app',
     payload: { appName, taskId: task?.taskId, taskLabel: task?.label },
     createdAt: Date.now(),
   };
