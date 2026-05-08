@@ -1,6 +1,6 @@
 import { createTimekeeperClient, type TimekeeperClient } from '@timekeeper/supabase-client';
 import type { LaptopHeartbeat, Nudge, BlockCommand } from '@timekeeper/schema';
-import { loadPairing } from './pairing';
+import { getOrCreateDeviceIdentity, loadPairing } from './pairing';
 import { machineIdSync } from 'node-machine-id';
 
 let client: TimekeeperClient | null = null;
@@ -17,15 +17,16 @@ let connected = true;
 export function isConnected(): boolean { return connected; }
 export function getQueueDepth(): number { return offlineQueue.length; }
 
-export function getPersistentDeviceId(): string {
-  try {
-    const id = machineIdSync();
-    // We prefix it so the caregiver knows it's a laptop
-    return `lp_${id.slice(0, 8)}`.toLowerCase();
-  } catch (e) {
-    return 'lp_unknown_device';
-  }
+export function getActiveClient(): TimekeeperClient | null {
+  return client;
 }
+
+export function getPersistentDeviceId(): string {
+  // Use the stable identity from pairing.ts instead of generating a new one here
+  return getOrCreateDeviceIdentity().deviceId;
+}
+
+
 
 export async function initClient() {
   client = createTimekeeperClient();
