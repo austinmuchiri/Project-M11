@@ -55,21 +55,23 @@ export function getOrCreateDeviceIdentity(): DeviceIdentity {
 export function loadPairing(): Pairing | null {
   try {
     if (!fs.existsSync(FILE)) {
-      if (process.env.TIMEKEEPER_DEMO !== 'false') {
+      // CHANGE: Use strict equality for 'true'
+      if (process.env.TIMEKEEPER_DEMO === 'true') { 
         const identity = getOrCreateDeviceIdentity();
         const auto: Pairing = {
-          kidId: MOCK_KID_ID, kidName: 'Munene',
-          deviceId: identity.deviceId, hardwareId: identity.hardwareId,
+          kidId: MOCK_KID_ID, 
+          kidName: 'Munene',
+          deviceId: identity.deviceId, 
+          hardwareId: identity.hardwareId,
           pairedAt: Date.now(),
         };
         fs.writeFileSync(FILE, JSON.stringify(auto, null, 2));
         return auto;
       }
-      return null;
+      return null; // Return null so pollForPairing can actually start
     }
+    
     const pairing = JSON.parse(fs.readFileSync(FILE, 'utf8')) as Pairing;
-    // Always override deviceId and hardwareId from the stable device.json so
-    // pairing.json written by an older version (with Date.now() IDs) is healed.
     const identity = getOrCreateDeviceIdentity();
     return { ...pairing, deviceId: identity.deviceId, hardwareId: identity.hardwareId };
   } catch {

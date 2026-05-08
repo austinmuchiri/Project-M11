@@ -356,21 +356,27 @@ export async function saveSettings(patch: Partial<KidSettings>) {
 // store.ts
 
 export async function pairDevice(kind: DeviceKind, label: string, code?: string) {
+  // const state = get();
   const client = getClient();
-  const payload: { kidId: string; kind: DeviceKind; label: string; id?: string; pairingCode?: string } = {
+
+  const payload = {
     kidId: state.kid.id,
     kind,
     label,
+    // CRITICAL: Ensure the code (the dev_laptop_xxx ID) 
+    // is being passed as the 'id' field to the client
+    id: kind === 'laptop' ? code : undefined, 
+    pairingCode: kind === 'watch' ? code : undefined,
   };
 
-  if (kind === 'laptop' && code) {
-    payload.id = code; // device ID copied from the tray popup — used as the DB primary key
-  } else if (kind === 'watch' && code) {
-    payload.pairingCode = code; // 4-digit PIN shown on watch display
+  try {
+    const device = await client.createDevice(payload);
+    // Update local state so the UI reflects the new device immediately
+    set({ devices: [...state.devices, device] });
+  } catch (error) {
+    console.error("Store pairDevice failed:", error);
+    throw error; // This triggers the "Pairing failed" message in your UI
   }
-
-  const device = await client.createDevice(payload);
-  set({ devices: [...state.devices, device] });
 }
 
 export async function removeDevice(deviceId: string) {

@@ -27,6 +27,8 @@ let allowQuit = false;
 let unsubNudges: (() => void) | null = null;
 let unsubBlocks: (() => void) | null = null;
 
+let pollTimer: NodeJS.Timeout | null = null;
+
 const TRAY_ICON_GREEN = path.join(__dirname, '..', 'assets', 'tray-green.png');
 const TRAY_ICON_GREY  = path.join(__dirname, '..', 'assets', 'tray-grey.png');
 
@@ -34,7 +36,7 @@ const TRAY_ICON_GREY  = path.join(__dirname, '..', 'assets', 'tray-grey.png');
 app.whenReady().then(async () => {
   // Hide dock on macOS — this is a tray-only utility
   if (process.platform === 'darwin' && app.dock) app.dock.hide();
-
+  console.log("📂 Storage Directory:", app.getPath('userData'));
   initClient();
 
   await startApp();
@@ -64,6 +66,14 @@ async function startApp() {
     // Standard startup for a device that is already linked
     const identity = getOrCreateDeviceIdentity();
     void registerDevice(identity.deviceId, identity.hardwareId);
+    setupSubscriptions();
+  }
+
+  if (!loadPairing()) {
+    console.log('[main] Starting discovery poll...');
+    pollTimer = setInterval(pollForPairing, 5000);
+  } else {
+    // Already paired startup...
     setupSubscriptions();
   }
   // Stamp hardware ID into the device row so the caregiver can verify identity.
@@ -263,38 +273,46 @@ function checkAppBlock(snap: WatcherSnapshot) {
   }
 }
 
-async function pollForPairing() {
-  const identity = getOrCreateDeviceIdentity(); // This has { deviceId, hardwareId }
-  const client = getActiveClient();
 
-  if (!client || loadPairing()) return;
+async function pollForPairing() {
+  const identity = getOrCreateDeviceIdentity();
+  const client = getActiveClient();
+  
+  // If we already have a pairing file, kill the timer and exit
+  if (loadPairing()) {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+    return;
+  }
+
+  if (!client) return;
 
   try {
-    // 1. Search by the specific ID shown on the tray popup
-    console.log(`[Handshake] Checking Supabase for Device ID: ${identity.deviceId}`);
     const device = await client.findDeviceByDeviceId(identity.deviceId);
 
     if (device && device.kidId) {
-      // 2. STAMP the hardware ID now so it's no longer null
-      // This "locks" this database row to this specific physical laptop
-      console.log(`[Handshake] Found device record! Linked to Kid: ${device.kidId}`);
-      await client.registerDevice(identity.deviceId, identity.hardwareId);
-
-      const newPairing: Pairing = {
+      savePairing({
         kidId: device.kidId,
-        kidName: 'Linked',
+        kidName: 'Linked Laptop',
         deviceId: identity.deviceId,
         hardwareId: identity.hardwareId,
         pairedAt: Date.now(),
-      };
+      });
 
-      savePairing(newPairing);
+      // MANDATORY: Clear the timer immediately upon success
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+
+      console.log('✅ Handshake successful. Monitoring starting...');
       setupSubscriptions();
       refreshTray(getCurrentSnapshot());
     }
   } catch (err) {
-    // Fail silently, retry in 5s
-    console.error('[Handshake] Network error during poll:', err);
+    // Silence network errors
   }
 }
 
