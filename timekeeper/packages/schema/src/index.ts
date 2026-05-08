@@ -13,7 +13,7 @@ export type TaskIcon = z.infer<typeof TaskIcon>;
 export const Task = z.object({
   id: z.string(),
   label: z.string().min(1).max(40),
-  kidId: z.string(),
+  kid_id: z.string(),
   icon: TaskIcon,
   expectedMinutes: z.number().int().positive().max(180),
   rewardStars: z.number().int().min(0).max(10),
@@ -23,7 +23,7 @@ export type Task = z.infer<typeof Task>;
 
 export const Routine = z.object({
   id: z.string(),
-  kidId: z.string(),
+  kid_id: z.string(),
   name: z.string().min(1).max(40),
   tasks: z.array(Task).min(1).max(20),
   startTime: z.string().regex(/^\d{2}:\d{2}$/), // 'HH:MM'
@@ -45,7 +45,7 @@ export type EventSource = z.infer<typeof EventSource>;
 
 export const TaskEvent = z.object({
   id: z.string().uuid().optional(),
-  kidId: z.string(),
+  kid_id: z.string(),
   routineId: z.string(),
   taskId: z.string(),
   status: TaskEventStatus,
@@ -64,7 +64,7 @@ export type DeviceKind = z.infer<typeof DeviceKind>;
 
 export const Device = z.object({
   id: z.string(),
-  kidId: z.string(),
+  kid_id: z.string(),
   kind: DeviceKind,
   label: z.string(),
   battery: z.number().min(0).max(100).optional(),
@@ -87,7 +87,7 @@ export type AppCategory = z.infer<typeof AppCategory>;
 
 export const LaptopHeartbeat = z.object({
   deviceId: z.string(),
-  kidId: z.string(),
+  kid_id: z.string(),
   ts: z.number().int(),
   focus: z.object({
     app: z.string(),
@@ -110,7 +110,7 @@ export type NudgeTone = z.infer<typeof NudgeTone>;
 
 export const Nudge = z.object({
   id: z.string().uuid().optional(),
-  kidId: z.string(),
+  kid_id: z.string(),
   message: z.string().max(120),
   tone: NudgeTone,
   sentAt: z.number().int(),
@@ -127,7 +127,7 @@ export type AlertKind = z.infer<typeof AlertKind>;
 
 export const Alert = z.object({
   id: z.string(),
-  kidId: z.string(),
+  kid_id: z.string(),
   kind: AlertKind,
   title: z.string(),
   body: z.string(),
@@ -199,7 +199,7 @@ export type BlockAction = z.infer<typeof BlockAction>;
 
 export const BlockCommand = z.object({
   id: z.string().uuid().optional(),
-  kidId: z.string(),
+  kid_id: z.string(),
   deviceId: z.string().optional(),
   action: BlockAction,
   payload: z.object({

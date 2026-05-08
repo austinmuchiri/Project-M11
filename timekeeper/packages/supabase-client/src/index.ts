@@ -61,18 +61,18 @@ export interface TimekeeperClient {
   // Resolve the active kid for the signed-in user. Single-kid for now;
   // returns the first kids row owned by the user. Returns null if none.
   resolveKid(): Promise<KidProfile | null>;
-  updateKid(kidId: string, patch: { name?: string; initials?: string; dateOfBirth?: string }): Promise<void>;
+  updateKid(kid_id: string, patch: { name?: string; initials?: string; dateOfBirth?: string }): Promise<void>;
 
   // Data
-  routines(kidId: string): Promise<Routine[]>;
-  events(kidId: string, sinceTs?: number): Promise<TaskEvent[]>;
-  devices(kidId: string): Promise<Device[]>;
-  alerts(kidId: string): Promise<Alert[]>;
-  heartbeat(kidId: string): Promise<LaptopHeartbeat | null>;
+  routines(kid_id: string): Promise<Routine[]>;
+  events(kid_id: string, sinceTs?: number): Promise<TaskEvent[]>;
+  devices(kid_id: string): Promise<Device[]>;
+  alerts(kid_id: string): Promise<Alert[]>;
+  heartbeat(kid_id: string): Promise<LaptopHeartbeat | null>;
 
-  getSettings(kidId: string): Promise<KidSettings>;
-  saveSettings(kidId: string, patch: Partial<KidSettings>): Promise<void>;
-  createDevice(d: { kidId: string; kind: DeviceKind; label: string; id?: string; hardwareId?: string }): Promise<Device>;
+  getSettings(kid_id: string): Promise<KidSettings>;
+  saveSettings(kid_id: string, patch: Partial<KidSettings>): Promise<void>;
+  createDevice(d: { kid_id: string; kind: DeviceKind; label: string; id?: string; hardwareId?: string }): Promise<Device>;
   findDeviceByDeviceId(deviceId: string): Promise<Device | null>;
   registerDevice(deviceId: string, hardwareId: string): Promise<void>;
   deleteDevice(deviceId: string): Promise<void>;
@@ -85,13 +85,13 @@ export interface TimekeeperClient {
   sendNudge(n: Nudge): Promise<void>;
   pushHeartbeat(h: LaptopHeartbeat): Promise<void>;
 
-  subscribeEvents(kidId: string, cb: (e: TaskEvent) => void): () => void;
-  subscribeHeartbeat(kidId: string, cb: (h: LaptopHeartbeat) => void): () => void;
-  subscribeNudges(kidId: string, cb: (n: Nudge) => void): () => void;
+  subscribeEvents(kid_id: string, cb: (e: TaskEvent) => void): () => void;
+  subscribeHeartbeat(kid_id: string, cb: (h: LaptopHeartbeat) => void): () => void;
+  subscribeNudges(kid_id: string, cb: (n: Nudge) => void): () => void;
 
   // Block commands — caregiver writes, laptop reads via realtime
   sendBlockCommand(cmd: BlockCommand): Promise<void>;
-  subscribeBlockCommands(kidId: string, cb: (cmd: BlockCommand) => void): () => void;
+  subscribeBlockCommands(kid_id: string, cb: (cmd: BlockCommand) => void): () => void;
 }
 
 function calcAge(dob: string): number {
@@ -171,7 +171,7 @@ class SupabaseImpl implements TimekeeperClient {
     };
   }
 
-  async updateKid(kidId: string, patch: { name?: string; initials?: string; dateOfBirth?: string }): Promise<void> {
+  async updateKid(kid_id: string, patch: { name?: string; initials?: string; dateOfBirth?: string }): Promise<void> {
     const row: Record<string, unknown> = {};
     if (patch.name      !== undefined) row.name     = patch.name;
     if (patch.initials  !== undefined) row.initials = patch.initials;
@@ -179,28 +179,28 @@ class SupabaseImpl implements TimekeeperClient {
       row.date_of_birth = patch.dateOfBirth;
       row.age = calcAge(patch.dateOfBirth); // keep legacy column in sync
     }
-    const { error } = await this.sb.from('kids').update(row).eq('id', kidId);
+    const { error } = await this.sb.from('kids').update(row).eq('id', kid_id);
     if (error) throw error;
   }
 
-  async routines(kidId: string): Promise<Routine[]> {
+  async routines(kid_id: string): Promise<Routine[]> {
     const { data, error } = await this.sb
-      .from('routines').select(`*,tasks (*)`).eq('kid_id', kidId);
+      .from('routines').select(`*,tasks (*)`).eq('kid_id', kid_id);
     if (error) throw error;
     return (data ?? []).map(rowToRoutine);
   }
 
-  async events(kidId: string, sinceTs = 0): Promise<TaskEvent[]> {
+  async events(kid_id: string, sinceTs = 0): Promise<TaskEvent[]> {
     const { data, error } = await this.sb
       .from('task_events').select('*')
-      .eq('kid_id', kidId).gte('ts', sinceTs).order('ts', { ascending: true });
+      .eq('kid_id', kid_id).gte('ts', sinceTs).order('ts', { ascending: true });
     if (error) throw error;
     return (data ?? []).map(rowToEvent);
   }
 
-  async devices(kidId: string): Promise<Device[]> {
+  async devices(kid_id: string): Promise<Device[]> {
     const { data, error } = await this.sb
-      .from('devices').select('*').eq('kid_id', kidId);
+      .from('devices').select('*').eq('kid_id', kid_id);
     if (error) throw error;
     return (data ?? []).map(rowToDevice);
   }
@@ -217,24 +217,24 @@ async findDeviceByDeviceId(deviceId: string): Promise<Device | null> {
     return data ? rowToDevice(data) : null;
   }
 
-  async alerts(kidId: string): Promise<Alert[]> {
+  async alerts(kid_id: string): Promise<Alert[]> {
     const { data, error } = await this.sb
-      .from('alerts').select('*').eq('kid_id', kidId).order('ts', { ascending: false });
+      .from('alerts').select('*').eq('kid_id', kid_id).order('ts', { ascending: false });
     if (error) throw error;
     return (data ?? []).map(rowToAlert);
   }
 
-  async heartbeat(kidId: string): Promise<LaptopHeartbeat | null> {
+  async heartbeat(kid_id: string): Promise<LaptopHeartbeat | null> {
     const { data, error } = await this.sb
       .from('laptop_heartbeat').select('*')
-      .eq('kid_id', kidId).order('ts', { ascending: false }).limit(1).maybeSingle();
+      .eq('kid_id', kid_id).order('ts', { ascending: false }).limit(1).maybeSingle();
     if (error) throw error;
     return data ? rowToHeartbeat(data) : null;
   }
 
-  async getSettings(kidId: string): Promise<KidSettings> {
+  async getSettings(kid_id: string): Promise<KidSettings> {
     try {
-      const { data } = await this.sb.from('kid_settings').select('*').eq('kid_id', kidId).maybeSingle();
+      const { data } = await this.sb.from('kid_settings').select('*').eq('kid_id', kid_id).maybeSingle();
       if (!data) return { ...DEFAULT_KID_SETTINGS };
       return {
         missThreshold:  data.miss_threshold  ?? DEFAULT_KID_SETTINGS.missThreshold,
@@ -247,9 +247,9 @@ async findDeviceByDeviceId(deviceId: string): Promise<Device | null> {
     } catch { return { ...DEFAULT_KID_SETTINGS }; }
   }
 
-  async saveSettings(kidId: string, patch: Partial<KidSettings>): Promise<void> {
+  async saveSettings(kid_id: string, patch: Partial<KidSettings>): Promise<void> {
     try {
-      const row: Record<string, unknown> = { kid_id: kidId };
+      const row: Record<string, unknown> = { kid_id: kid_id };
       if (patch.missThreshold !== undefined) row.miss_threshold = patch.missThreshold;
       if (patch.quietHours    !== undefined) row.quiet_hours    = patch.quietHours;
       if (patch.quietStart    !== undefined) row.quiet_start    = patch.quietStart;
@@ -261,17 +261,17 @@ async findDeviceByDeviceId(deviceId: string): Promise<Device | null> {
     } catch { /* degrade gracefully if table missing */ }
   }
 
-  async createDevice(d: { kidId: string; kind: DeviceKind; label: string; id?: string; hardwareId?: string }): Promise<Device> {
+  async createDevice(d: { kid_id: string; kind: DeviceKind; label: string; id?: string; hardwareId?: string }): Promise<Device> {
     const id  = d.id ?? `dev_${d.kind}_${Date.now()}`;
     const now = Date.now();
     const row: Record<string, unknown> = {
-      id, kid_id: d.kidId, kind: d.kind, label: d.label,
+      id, kid_id: d.kid_id, kind: d.kind, label: d.label,
       last_seen: now, paired: true,
     };
     if (d.hardwareId) row.hardware_id = d.hardwareId;
     const { error } = await this.sb.from('devices').upsert(row, { onConflict: 'id' });
     if (error) throw error;
-    return { id, kidId: d.kidId, kind: d.kind, label: d.label, lastSeen: now, paired: true };
+    return { id, kid_id: d.kid_id, kind: d.kind, label: d.label, lastSeen: now, paired: true };
   }
 
   async registerDevice(deviceId: string, hardwareId: string): Promise<void> {
@@ -288,15 +288,16 @@ async findDeviceByDeviceId(deviceId: string): Promise<Device | null> {
   }
 
   async createRoutine(r: Routine): Promise<Routine> {
-  console.log("📤 Attempting to insert routine:", r);
+    console.log("📤 Attempting to insert routine:", r);
 
   // Step 1: Insert routine
   const { data: routine, error } = await this.sb
     .from('routines')
     .insert({
       id: r.id,
-      kid_id: r.kidId,
+      kid_id: r.kid_id,
       name: r.name,
+      start_time: r.startTime,
       active: r.active,
     })
     .select()
@@ -312,7 +313,7 @@ async findDeviceByDeviceId(deviceId: string): Promise<Device | null> {
     const tasksToInsert = r.tasks.map((t, index) => ({
       id: t.id,
       routine_id: r.id,
-      kid_id: r.kidId,
+      kid_id: r.kid_id,
       label: t.label,
       icon: t.icon,
       scheduled_time: t.scheduledTime,
@@ -336,39 +337,69 @@ async findDeviceByDeviceId(deviceId: string): Promise<Device | null> {
   console.log("✅ Routine inserted:", routine);
 
   return {
-    ...routine,
+    id: routine.id,
+    kid_id: routine.kid_id,
+    name: routine.name,
+    startTime: routine.start_time,
+    active: routine.active,
     tasks: r.tasks ?? [],
   };
 }
 
-  async updateRoutine(routineId: string,
-    patch: {
-      active?: boolean;
-      name?: string;
-      tasks?: Routine['tasks'];
-    }
-  ): Promise<void> {
 
-  // Step 1: Update routine fields ONLY
-  const routineRow: Record<string, unknown> = {};
 
-  if (patch.active !== undefined) routineRow.active = patch.active;
-  if (patch.name !== undefined) routineRow.name = patch.name;
+  async updateRoutine(
+  routineId: string,
+  patch: {
+    active?: boolean;
+    name?: string;
+    tasks?: Routine['tasks'];
+    startTime?: string;
+  }
+): Promise<void> {
 
-  if (Object.keys(routineRow).length > 0) {
+  // STEP 0:
+  // Fetch routine so we ALWAYS get authoritative kid_id
+  const { data: routineRow, error: routineFetchError } = await this.sb
+    .from('routines')
+    .select('kid_id')
+    .eq('id', routineId)
+    .single();
+
+  if (routineFetchError) throw routineFetchError;
+
+  const kidId = routineRow.kid_id as string;
+
+  // STEP 1:
+  // Update routine metadata
+  const routinePatch: Record<string, unknown> = {};
+
+  if (patch.active !== undefined) {
+    routinePatch.active = patch.active;
+  }
+
+  if (patch.name !== undefined) {
+    routinePatch.name = patch.name;
+  }
+
+  if (patch.startTime !== undefined) {
+    routinePatch.start_time = patch.startTime;
+  }
+
+  if (Object.keys(routinePatch).length > 0) {
     const { error } = await this.sb
       .from('routines')
-      .update(routineRow)
+      .update(routinePatch)
       .eq('id', routineId);
 
     if (error) throw error;
   }
 
-  // Step 2: Handle tasks separately
+  // STEP 2:
+  // Replace tasks
   if (patch.tasks) {
-    // 🚨 Strategy: simplest safe approach → DELETE + REINSERT
 
-    // 2a. Delete existing tasks
+    // Delete old tasks
     const { error: deleteError } = await this.sb
       .from('tasks')
       .delete()
@@ -376,27 +407,36 @@ async findDeviceByDeviceId(deviceId: string): Promise<Device | null> {
 
     if (deleteError) throw deleteError;
 
-    // 2b. Reinsert new tasks
-    const tasksToInsert = patch.tasks.map((t, index) => ({
-      id: t.id,
-      routine_id: routineId,
-      kid_id: t.kidId, // MUST exist on your Task model
-      label: t.label,
-      icon: t.icon,
-      scheduled_time: t.scheduledTime,
-      expected_minutes: t.expectedMinutes,
-      reward_stars: t.rewardStars ?? 1,
-      position: index,
-    }));
+    // Insert new tasks
+    if (patch.tasks.length > 0) {
 
-    const { error: insertError } = await this.sb
-      .from('tasks')
-      .insert(tasksToInsert);
+      const tasksToInsert = patch.tasks.map((t, index) => ({
+        id: t.id,
+        routine_id: routineId,
 
-    if (insertError) throw insertError;
+        // IMPORTANT:
+        // NEVER trust frontend kidId here
+        kid_id: kidId,
+
+        label: t.label,
+        icon: t.icon,
+        scheduled_time: t.scheduledTime,
+        expected_minutes: t.expectedMinutes,
+        reward_stars: t.rewardStars ?? 1,
+        position: index,
+      }));
+
+      const { error: insertError } = await this.sb
+        .from('tasks')
+        .insert(tasksToInsert);
+
+      if (insertError) {
+        console.error("Task insert failed:", insertError);
+        throw insertError;
+      }
+    }
   }
 }
-
   async deleteRoutine(routineId: string): Promise<void> {
     const { error } = await this.sb.from('routines').delete().eq('id', routineId);
     if (error) throw error;
@@ -409,7 +449,7 @@ async findDeviceByDeviceId(deviceId: string): Promise<Device | null> {
 
   async sendNudge(n: Nudge): Promise<void> {
     const { error } = await this.sb.from('nudges').insert({
-      kid_id: n.kidId, message: n.message, tone: n.tone,
+      kid_id: n.kid_id, message: n.message, tone: n.tone,
       sent_at: n.sentAt, acknowledged: n.acknowledged,
     });
     if (error) throw error;
@@ -420,30 +460,30 @@ async findDeviceByDeviceId(deviceId: string): Promise<Device | null> {
     if (error) throw error;
   }
 
-  subscribeEvents(kidId: string, cb: (e: TaskEvent) => void): () => void {
-    const ch = this.sb.channel(`events:${kidId}`)
+  subscribeEvents(kid_id: string, cb: (e: TaskEvent) => void): () => void {
+    const ch = this.sb.channel(`events:${kid_id}`)
       .on('postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'task_events', filter: `kid_id=eq.${kidId}` },
+          { event: 'INSERT', schema: 'public', table: 'task_events', filter: `kid_id=eq.${kid_id}` },
           (p) => cb(rowToEvent(p.new)))
       .subscribe();
     return () => { void this.sb.removeChannel(ch); };
   }
 
-  subscribeHeartbeat(kidId: string, cb: (h: LaptopHeartbeat) => void): () => void {
-    const ch = this.sb.channel(`heartbeat:${kidId}`)
+  subscribeHeartbeat(kid_id: string, cb: (h: LaptopHeartbeat) => void): () => void {
+    const ch = this.sb.channel(`heartbeat:${kid_id}`)
       .on('postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'laptop_heartbeat', filter: `kid_id=eq.${kidId}` },
+          { event: 'INSERT', schema: 'public', table: 'laptop_heartbeat', filter: `kid_id=eq.${kid_id}` },
           (p) => cb(rowToHeartbeat(p.new)))
       .subscribe();
     return () => { void this.sb.removeChannel(ch); };
   }
 
-  subscribeNudges(kidId: string, cb: (n: Nudge) => void): () => void {
-    const ch = this.sb.channel(`nudges:${kidId}`)
+  subscribeNudges(kid_id: string, cb: (n: Nudge) => void): () => void {
+    const ch = this.sb.channel(`nudges:${kid_id}`)
       .on('postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'nudges', filter: `kid_id=eq.${kidId}` },
+          { event: 'INSERT', schema: 'public', table: 'nudges', filter: `kid_id=eq.${kid_id}` },
           (p) => cb({
-            kidId: p.new.kid_id, message: p.new.message, tone: p.new.tone,
+            kid_id: p.new.kid_id, message: p.new.message, tone: p.new.tone,
             sentAt: p.new.sent_at, acknowledged: p.new.acknowledged,
           }))
       .subscribe();
@@ -452,17 +492,17 @@ async findDeviceByDeviceId(deviceId: string): Promise<Device | null> {
 
   async sendBlockCommand(cmd: BlockCommand): Promise<void> {
     const { error } = await this.sb.from('block_commands').insert({
-      kid_id: cmd.kidId, device_id: cmd.deviceId ?? null,
+      kid_id: cmd.kid_id, device_id: cmd.deviceId ?? null,
       action: cmd.action, payload: cmd.payload ?? null,
       expires_at: cmd.expiresAt ?? null, created_at: cmd.createdAt,
     });
     if (error) throw error;
   }
 
-  subscribeBlockCommands(kidId: string, cb: (cmd: BlockCommand) => void): () => void {
-    const ch = this.sb.channel(`blocks:${kidId}`)
+  subscribeBlockCommands(kid_id: string, cb: (cmd: BlockCommand) => void): () => void {
+    const ch = this.sb.channel(`blocks:${kid_id}`)
       .on('postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'block_commands', filter: `kid_id=eq.${kidId}` },
+          { event: 'INSERT', schema: 'public', table: 'block_commands', filter: `kid_id=eq.${kid_id}` },
           (p) => cb(rowToBlockCommand(p.new)))
       .subscribe();
     return () => { void this.sb.removeChannel(ch); };
@@ -542,7 +582,7 @@ class MockImpl implements TimekeeperClient {
     return { ...this.mockKid };
   }
 
-  async updateKid(_kidId: string, patch: { name?: string; initials?: string; dateOfBirth?: string }): Promise<void> {
+  async updateKid(_kid_id: string, patch: { name?: string; initials?: string; dateOfBirth?: string }): Promise<void> {
     if (patch.name      !== undefined) this.mockKid.name     = patch.name;
     if (patch.initials  !== undefined) this.mockKid.initials = patch.initials;
     if (patch.dateOfBirth !== undefined) {
@@ -551,32 +591,32 @@ class MockImpl implements TimekeeperClient {
     }
   }
 
-  async routines(kidId: string) { return this.routinesStore.filter(r => r.kidId === kidId); }
+  async routines(kid_id: string) { return this.routinesStore.filter(r => r.kid_id === kid_id); }
 
-  async events(kidId: string, sinceTs = 0) {
-    return this.eventsStore.filter(e => e.kidId === kidId && e.ts >= sinceTs);
+  async events(kid_id: string, sinceTs = 0) {
+    return this.eventsStore.filter(e => e.kid_id === kid_id && e.ts >= sinceTs);
   }
-  async devices(kidId: string) { return this.devicesStore.filter(d => d.kidId === kidId); }
+  async devices(kid_id: string) { return this.devicesStore.filter(d => d.kid_id === kid_id); }
 
   async findDeviceByDeviceId(deviceId: string): Promise<Device | null> {
     const device = this.devicesStore.find(d => d.id === deviceId);
     return device ? { ...device } : null;
   }
 
-  async alerts(kidId: string) { return this.alertsStore.filter(a => a.kidId === kidId); }
+  async alerts(kid_id: string) { return this.alertsStore.filter(a => a.kid_id === kid_id); }
 
-  async heartbeat(_kidId: string) { return this.heartbeatStore; }
+  async heartbeat(_kid_id: string) { return this.heartbeatStore; }
 
-  async getSettings(_kidId: string): Promise<KidSettings> { return { ...this.settingsStore }; }
+  async getSettings(_kid_id: string): Promise<KidSettings> { return { ...this.settingsStore }; }
 
-  async saveSettings(_kidId: string, patch: Partial<KidSettings>): Promise<void> {
+  async saveSettings(_kid_id: string, patch: Partial<KidSettings>): Promise<void> {
     this.settingsStore = { ...this.settingsStore, ...patch };
     this.persist('tk_settings', this.settingsStore);  
   }
   
-  async createDevice(d: { kidId: string; kind: DeviceKind; label: string; id?: string; hardwareId?: string }): Promise<Device> {
+  async createDevice(d: { kid_id: string; kind: DeviceKind; label: string; id?: string; hardwareId?: string }): Promise<Device> {
     const device: Device = {
-      id: d.id ?? `dev_${d.kind}_${Date.now()}`, kidId: d.kidId, kind: d.kind,
+      id: d.id ?? `dev_${d.kind}_${Date.now()}`, kid_id: d.kid_id, kind: d.kind,
       label: d.label, lastSeen: Date.now(), paired: true,
       hardwareId: d.hardwareId,
     };
@@ -634,17 +674,17 @@ class MockImpl implements TimekeeperClient {
     this.heartbeatListeners.forEach(l => l(h));
   }
 
-  subscribeEvents(_kidId: string, cb: Listener<TaskEvent>) {
+  subscribeEvents(_kid_id: string, cb: Listener<TaskEvent>) {
     this.eventListeners.add(cb);
     return () => { this.eventListeners.delete(cb); };
   }
 
-  subscribeHeartbeat(_kidId: string, cb: Listener<LaptopHeartbeat>) {
+  subscribeHeartbeat(_kid_id: string, cb: Listener<LaptopHeartbeat>) {
     this.heartbeatListeners.add(cb);
     return () => { this.heartbeatListeners.delete(cb); };
   }
 
-  subscribeNudges(_kidId: string, cb: Listener<Nudge>) {
+  subscribeNudges(_kid_id: string, cb: Listener<Nudge>) {
     this.nudgeListeners.add(cb);
     return () => { this.nudgeListeners.delete(cb); };
   }
@@ -653,7 +693,7 @@ class MockImpl implements TimekeeperClient {
     this.blockCommandListeners.forEach(l => l(cmd));
   }
 
-  subscribeBlockCommands(_kidId: string, cb: Listener<BlockCommand>) {
+  subscribeBlockCommands(_kid_id: string, cb: Listener<BlockCommand>) {
     this.blockCommandListeners.add(cb);
     return () => { this.blockCommandListeners.delete(cb); };
   }
@@ -715,18 +755,15 @@ function readEnv(k: string): string | undefined {
   return undefined;
 }
 
-// ─────────────────────────────────────────────────────────
-// Row mappers (Supabase snake_case ↔ schema camelCase)
-// ─────────────────────────────────────────────────────────
 
 function rowToRoutine(r: Record<string, unknown>): Routine {
   return {
     id: r.id as string,
-    kidId: r.kid_id as string,
+    kid_id: r.kid_id as string,
     name: r.name as string,
     tasks: (Array.isArray(r.tasks) ? r.tasks : []).map((t: any) => ({
       id: t.id,
-      kidId: t.kid_id ?? r.kid_id,
+      kid_id: t.kid_id ?? r.kid_id,
       label: t.label,
       icon: t.icon,
       scheduledTime: t.scheduled_time,
@@ -741,7 +778,7 @@ function rowToRoutine(r: Record<string, unknown>): Routine {
 function rowToEvent(r: Record<string, unknown>): TaskEvent {
   return {
     id: r.id as string | undefined,
-    kidId: r.kid_id as string,
+    kid_id: r.kid_id as string,
     routineId: r.routine_id as string,
     taskId: r.task_id as string,
     status: r.status as TaskEvent['status'],
@@ -753,14 +790,14 @@ function rowToEvent(r: Record<string, unknown>): TaskEvent {
 
 function eventToRow(e: TaskEvent): Record<string, unknown> {
   return {
-    kid_id: e.kidId, routine_id: e.routineId, task_id: e.taskId,
+    kid_id: e.kid_id, routine_id: e.routineId, task_id: e.taskId,
     status: e.status, source: e.source, ts: e.ts, duration_ms: e.durationMs ?? null,
   };
 }
 
 function rowToDevice(r: Record<string, unknown>): Device {
   return {
-    id: r.id as string, kidId: r.kid_id as string, kind: r.kind as Device['kind'],
+    id: r.id as string, kid_id: r.kid_id as string, kind: r.kind as Device['kind'],
     label: r.label as string, battery: r.battery as number | undefined,
     lastSeen: r.last_seen as number, fwVersion: r.fw_version as string | undefined,
     hardwareId: r.hardware_id as string | undefined,
@@ -770,7 +807,7 @@ function rowToDevice(r: Record<string, unknown>): Device {
 
 function rowToAlert(r: Record<string, unknown>): Alert {
   return {
-    id: r.id as string, kidId: r.kid_id as string, kind: r.kind as Alert['kind'],
+    id: r.id as string, kid_id: r.kid_id as string, kind: r.kind as Alert['kind'],
     title: r.title as string, body: r.body as string,
     ts: r.ts as number, read: r.read as boolean,
   };
@@ -778,7 +815,7 @@ function rowToAlert(r: Record<string, unknown>): Alert {
 
 function rowToHeartbeat(r: Record<string, unknown>): LaptopHeartbeat {
   return {
-    deviceId: r.device_id as string, kidId: r.kid_id as string,
+    deviceId: r.device_id as string, kid_id: r.kid_id as string,
     ts: r.ts as number,
     focus: r.focus as LaptopHeartbeat['focus'],
     idleSec: r.idle_sec as number, locked: r.locked as boolean,
@@ -788,7 +825,7 @@ function rowToHeartbeat(r: Record<string, unknown>): LaptopHeartbeat {
 
 function heartbeatToRow(h: LaptopHeartbeat): Record<string, unknown> {
   return {
-    device_id: h.deviceId, kid_id: h.kidId, ts: h.ts,
+    device_id: h.deviceId, kid_id: h.kid_id, ts: h.ts,
     focus: h.focus, idle_sec: h.idleSec, locked: h.locked,
     audio_active: h.audioActive,
   };
@@ -797,7 +834,7 @@ function heartbeatToRow(h: LaptopHeartbeat): Record<string, unknown> {
 function rowToBlockCommand(r: Record<string, unknown>): BlockCommand {
   return {
     id: r.id as string | undefined,
-    kidId: r.kid_id as string,
+    kid_id: r.kid_id as string,
     deviceId: r.device_id as string | undefined,
     action: r.action as BlockCommand['action'],
     payload: r.payload as BlockCommand['payload'],
