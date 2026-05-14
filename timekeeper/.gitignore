@@ -19,11 +19,11 @@ android/.gradle/
 android/local.properties
 
 # Electron-builder
-release/
-*.dmg
-*.exe
-*.AppImage
-*.deb
+# release/
+# *.dmg
+# *.exe
+# *.AppImage
+# *.deb
 
 # ESP-IDF
 build/

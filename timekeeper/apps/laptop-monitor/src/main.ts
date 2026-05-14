@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, powerMonitor, dialog } from 'electron';
 import * as path from 'node:path';
+import * as fs from 'node:fs'; // Added for file logging
 import * as dotenv from 'dotenv';
 import { startWatcher, stopWatcher, getCurrentSnapshot, type WatcherSnapshot } from './watcher';
 import { showLockscreen, hideLockscreen, isLockscreenVisible, getLockscreenWindow } from './lockscreen';
@@ -9,11 +10,35 @@ import { loadPairing, clearPairing, getOrCreateDeviceIdentity, savePairing, Pair
 import type { BlockCommand } from '@timekeeper/schema';
 
 
+// --- LOGGING UTILITY ---
+const logPath = path.join(app.getPath('userData'), 'debug.log');
+function log(msg: string) {
+  const line = `${new Date().toISOString()} - ${msg}\n`;
+  console.log(msg); // Terminal
+  fs.appendFileSync(logPath, line); // File
+}
 
-dotenv.config({ path: path.join(__dirname, '../.env') });
+
+// --- CONFIG LOADING ---
+const envPath = app.isPackaged 
+  ? path.join(process.env.PORTABLE_EXECUTABLE_DIR || path.dirname(process.execPath), '.env') 
+  : path.join(__dirname, '..', '.env');
+
+log(`[Env] Portable Dir: ${process.env.PORTABLE_EXECUTABLE_DIR}`);
+log(`[Env] Loading from: ${envPath}`);
+
+const result = dotenv.config({ path: envPath });
+
+if (result.error) {
+  log(`[Env] Error loading .env: ${result.error.message}`);
+} else {
+  log(`[Env] Supabase URL exists: ${!!process.env.SUPABASE_URL}`);
+}
 
 let tray: Tray | null = null;
 let popup: BrowserWindow | null = null;
+
+let debugWindow: BrowserWindow | null = null;
 
 // Active block command received from caregiver — drives lockscreen + app overlay
 let activeBlock: BlockCommand | null = null;
@@ -33,100 +58,104 @@ let pollTimer: NodeJS.Timeout | null = null;
 const TRAY_ICON_GREEN = path.join(__dirname, '..', 'assets', 'tray-green.png');
 const TRAY_ICON_GREY  = path.join(__dirname, '..', 'assets', 'tray-grey.png');
 
-
+if (app.isPackaged && process.env.PORTABLE_EXECUTABLE_DIR) {
+  const userDataPath = path.join(process.env.PORTABLE_EXECUTABLE_DIR, 'timekeeper-data');
+  if (!fs.existsSync(userDataPath)) fs.mkdirSync(userDataPath);
+  app.setPath('userData', userDataPath);
+}
+// --- APP READY ---
 app.whenReady().then(async () => {
-  // Hide dock on macOS — this is a tray-only utility
+  debugWindow = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+
+  debugWindow.webContents.openDevTools({ mode: 'detach' });
+  
+  // Push logs to DevTools Console
+  const pushToConsole = (m: string) => debugWindow?.webContents.executeJavaScript(`console.log("[Main Log] ${m}")`);
+  
+  pushToConsole(`Supabase URL: ${process.env.SUPABASE_URL ? 'Connected' : 'MISSING'}`);
+  pushToConsole(`Is Packaged: ${app.isPackaged}`);
+  pushToConsole(`Data Path: ${app.getPath('userData')}`);
+
   if (process.platform === 'darwin' && app.dock) app.dock.hide();
 
+  log("[Main] Initializing Supabase Client...");
   initClient();
 
-  await startApp();
+  await startApp();
 }).catch((err) => {
-  console.error('[main] failed to start', err);
-  app.exit(1);
+  log(`[Main] CRITICAL FAILURE: ${err.message}`);
+  app.exit(1);
 });
 
 async function startApp() {
-  buildTray();
+  buildTray();
 
-  const pairing = loadPairing();
+  const pairing = loadPairing();
 
   if (!pairing) {
-  console.log('[main] Device unpaired. Starting discovery poll...');
+    log('[Handshake] Device unpaired. ID: ' + getOrCreateDeviceIdentity().deviceId);
 
-  pollTimer = setInterval(async () => {
-    if (getActiveClient()) {
-      await pollForPairing();
+    pollTimer = setInterval(async () => {
+      if (getActiveClient()) {
+        log('[Handshake] Polling Supabase for device record...');
+        await pollForPairing();
 
-      if (loadPairing()) {
-        console.log('[main] Handshake success. Polling stopped.');
-        
-        if (pollTimer) {
-          
-          clearInterval(pollTimer);
-          pollTimer = null;
+        if (loadPairing()) {
+          log('[Handshake] Handshake success. Pairing saved.');
+          if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+          }
         }
+      } else {
+        log('[Handshake] Waiting for Supabase Client to initialize...');
       }
-    }
-  }, 5000);
+    }, 5000);
   } else {
-
+    log(`[Main] Existing pairing found for Kid: ${pairing.kidId}`);
     const identity = getOrCreateDeviceIdentity();
-    
-    void registerDevice(
-      identity.deviceId,
-      identity.hardwareId
-    );
+    void registerDevice(identity.deviceId, identity.hardwareId);
     setupSubscriptions();
   }
-  // Stamp hardware ID into the device row so the caregiver can verify identity.
-  // Runs silently — a failed registration never blocks monitoring.
-  
 
-  await startWatcher((snap) => {
-    void onSnapshot(snap);
-    refreshTray(snap);
-    checkAppBlock(snap);
-  });
+  await startWatcher((snap) => {
+    void onSnapshot(snap);
+    refreshTray(snap);
+    checkAppBlock(snap);
+  });
 
-  
-  // Quit handlers — tray-only app, never auto-quits when no windows
-  app.on('window-all-closed', () => { /* keep tray alive */ });
+  app.on('window-all-closed', () => { });
+  app.on('before-quit', (event) => { if (!allowQuit) event.preventDefault(); });
+  app.on('will-quit', () => { stopWatcher(); });
 
-  // Intercept quit attempts (e.g. Cmd+Q, dock quit on macOS) so the child
-  // cannot bypass monitoring. The tray "Quit" item sets allowQuit first.
-  app.on('before-quit', (event) => {
-    if (!allowQuit) event.preventDefault();
-  });
-  app.on('will-quit', () => { stopWatcher(); });
+  powerMonitor.on('lock-screen',   () => onSystemEvent({ kind: 'lock' }));
+  powerMonitor.on('unlock-screen', () => onSystemEvent({ kind: 'unlock' }));
+  powerMonitor.on('suspend',       () => onSystemEvent({ kind: 'sleep' }));
+  powerMonitor.on('resume',        () => onSystemEvent({ kind: 'wake' }));
 
-  // System events
-  powerMonitor.on('lock-screen',   () => onSystemEvent({ kind: 'lock' }));
-  powerMonitor.on('unlock-screen', () => onSystemEvent({ kind: 'unlock' }));
-  powerMonitor.on('suspend',       () => onSystemEvent({ kind: 'sleep' }));
-  powerMonitor.on('resume',        () => onSystemEvent({ kind: 'wake' }));
-
-  // Renderer ↔ main bridge for the popup
-  ipcMain.handle('tk:get-snapshot',    () => getCurrentSnapshot());
-  ipcMain.handle('tk:get-connection', async () => {
-    const identity = getOrCreateDeviceIdentity(); 
-    return { deviceId: identity.deviceId };
-  });
-  ipcMain.handle('tk:get-pairing',  () => {
-    const pairing = loadPairing();
-    if (!pairing) return null;
-    // loadPairing() already merges deviceId + hardwareId from device.json,
-    // but we call getOrCreateDeviceIdentity() explicitly to guarantee freshness.
-    const identity = getOrCreateDeviceIdentity();
-    return { ...pairing, deviceId: identity.deviceId, hardwareId: identity.hardwareId };
-  });
-  ipcMain.handle('tk:unpair', () => unpair());
-  ipcMain.handle('tk:show-lock', (_e, opts: { taskLabel: string; expectedSec: number }) => {
-    showLockscreen(opts.taskLabel, opts.expectedSec);
-  });
-  ipcMain.handle('tk:hide-lock', () => hideLockscreen());
+  ipcMain.handle('tk:get-snapshot', () => getCurrentSnapshot());
+  ipcMain.handle('tk:get-connection', async () => {
+    const identity = getOrCreateDeviceIdentity(); 
+    return { deviceId: identity.deviceId };
+  });
+  ipcMain.handle('tk:get-pairing', () => {
+    const p = loadPairing();
+    if (!p) return null;
+    const identity = getOrCreateDeviceIdentity();
+    return { ...p, deviceId: identity.deviceId, hardwareId: identity.hardwareId };
+  });
+  ipcMain.handle('tk:unpair', () => unpair());
+  ipcMain.handle('tk:show-lock', (_e, opts: { taskLabel: string; expectedSec: number }) => {
+    showLockscreen(opts.taskLabel, opts.expectedSec);
+  });
+  ipcMain.handle('tk:hide-lock', () => hideLockscreen());
 }
-
 
 function setupSubscriptions() {
   
@@ -283,36 +312,24 @@ function checkAppBlock(snap: WatcherSnapshot) {
 
 async function pollForPairing() {
   const identity = getOrCreateDeviceIdentity();
-
   if (loadPairing()) return;
 
   try {
-    console.log(
-      `[Handshake] polling for device ID: ${identity.deviceId}`
-    );
-
-    const device = await findDeviceByDeviceId(
-      identity.deviceId
-    );
+    const device = await findDeviceByDeviceId(identity.deviceId);
 
     if (!device) {
-      console.log('[Handshake] device not found yet');
+      log(`[Handshake] Device ${identity.deviceId} not found in DB.`);
       return;
     }
 
     if (!device.kid_id) {
-      console.log('[Handshake] device missing kid_id');
+      log('[Handshake] Device found but not yet assigned to a Kid.');
       return;
     }
 
-    console.log(
-      `[Handshake] found device row for kid ${device.kid_id}`
-    );
+    log(`[Handshake] Linking to Kid: ${device.kid_id}`);
 
-    await registerDevice(
-      identity.deviceId,
-      identity.hardwareId
-    );
+    await registerDevice(identity.deviceId, identity.hardwareId);
 
     const pairing: Pairing = {
       kidId: device.kid_id,
@@ -323,15 +340,10 @@ async function pollForPairing() {
     };
 
     savePairing(pairing);
-
-    console.log('[Handshake] pairing saved');
-
     setupSubscriptions();
-
     refreshTray(getCurrentSnapshot());
-
-  } catch (err) {
-    console.error('[Handshake] polling failed:', err);
+  } catch (err: any) {
+    log(`[Handshake] Network/DB Error: ${err.message}`);
   }
 }
 
